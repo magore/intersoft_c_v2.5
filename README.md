@@ -9,6 +9,8 @@ By Mike Gore, Richard B. McMurray, Bernie Roehl, Ashok Patel, Andrew Forber
 ## Files
   * Documents/Intersoft_C_Compiler_v2.5_1982_Intersoft_Unlimited.pdf
     * PDF of scanned Intersoft Manual
+  * References
+    * http://www.trs-80.com/trs80-mag-80micro-1983.htm
   * Mike_Gore_Intersoft.png
 	* My Intersoft Business Card from 1982
   * extracted/intersoft_c_v2.5
