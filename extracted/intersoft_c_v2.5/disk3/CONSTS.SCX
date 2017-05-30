@@ -1,0 +1,137 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+
+/* This module contains the constant definitions for
+ * the compiler.  Default values for the compiler options
+ * may be found in the module "options".
+ */
+
+
+#define BANNER "Intersoft C V2.5"
+#define COPYRIGHT "C Version 2.5, Copyright 1982 (c) Intersoft Unlimited"
+
+/* I/o, logical and character definitions */
+#define NULL   0
+#define TRUE   1
+#define FALSE  0
+#define EOL   30
+#define EOF   -1
+
+#define CMASK     127
+#define BACKSPACE 8
+#define TABCH     9
+#define FORMFEED  12
+#define DQUOTE    34
+#define APOST     39
+#define ASTERISK  42
+#define BACKSLASH 92
+
+#define READ  "r"
+#define WRITE "w"
+
+
+/* Symbol table parameters */
+#define SYMSIZ   18
+#define NUMGLBS  numglbs
+#define NUMLOCS  numlocs
+#define SYMTBSZ  ((NUMLOCS+NUMGLBS+1) * SYMSIZ)
+#define STARTGLB symtab
+#define ENDGLB   (STARTGLB + NUMGLBS * SYMSIZ)
+#define STARTLOC ENDGLB+SYMSIZ
+#define ENDLOC   STARTGLB+SYMTBSZ-SYMSIZ
+
+/* Symbol table entry format */
+#define NAME     0
+#define IDENT    9
+#define TYPE     10
+#define STORAGE  11
+#define OFFSET   12
+#define LEFTLOW  14
+#define LEFTHI   15
+#define RIGHTLOW 16
+#define RIGHTHI  17
+
+/* System wide name size (for symbols) */
+#define NAMESIZE 9
+#define NAMEMAX  8
+
+/* Define values for "IDENT" field of symbol table */
+#define VARIABLE 1
+#define ARRAY    2
+#define POINTER  3
+#define FUNCTION 4
+
+/* Define values for "TYPE" field of symbol table */
+#define CCHAR 1
+#define CINT  2
+
+/* Constant type used by constant folding code in the expression parser*/
+#define CCONST 3
+
+/* Define values for "STORAGE" field of symbol table */
+#define STATIK 1
+#define STKLOC 2
+
+
+/* Loop control block parameters ("while queue") */
+#define WQTABSZ wqtabs
+#define WQSIZ   7
+#define WQMAX   wq+WQTABSZ-WQSIZ
+
+/* Loop control block ("while queue") format */
+#define WQSYM  0
+#define WQSP   1
+#define WQLOOP 2
+#define WQLAB  3
+#define WQCONT 4
+#define WQFOR  5
+#define WQTYPE 6
+
+
+/* Literal pool size */
+#define LITABSZ litpools
+#define LITMAX  (LITABSZ-1)
+
+
+/* Input file (max.) line length */
+#define LINESIZE linesize
+#define LINEMAX  (LINESIZE-1)
+#define MPMAX    LINEMAX
+
+
+/* Macro (define) pool */
+#define MACQSIZE defpools
+#define MACMAX   (MACQSIZE-1)
+#define MAXMAC   numdefs
+
+
+/* Define statement types */
+#define STIF     1
+#define STWHILE  2
+#define STRETURN 3
+#define STBREAK  4
+#define STCONT   5
+#define STASM    6
+#define STEXP    7
+#define STDO     8
+#define STFOR    9
+#define STSWITCH 10
+#define STCASE   11
+#define STDEFAULT 12
+
+
+/* Define character types (numeric, alphabetic, etc.) */
+#define CNUMERIC  1
+#define CALPHA    2
+#define CALPHNUM  3
+#define LOWERCASE 4
+#define CALPHAL   6
+
+/* No. of filepointers for #include's */
+#define FPMAX 3
+
+/* Maximum number of cases in a switch statement */
+#define SWCOUNT 128

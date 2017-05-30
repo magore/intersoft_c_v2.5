@@ -1,0 +1,281 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+#include "consts/scx"
+#include "vars/scx"
+#include "option/scx"
+
+
+/*
+ * This module contains the symbol table code as well as
+ * the code which actually declares variables.
+ */
+
+
+/*
+ * Add a global symbol to the symbol table
+ * AN ATTEMPT TO FIND THE SYMBOL MUST BE MADE BEFORE IT
+ * IS ADDED!!
+ * Global symbols have GSIG significant characters.
+ */
+addglb(sname, id, typ, value)
+  char *sname, id, typ;
+  int  value;
+{
+  char *ptr;
+  int  *temptr;
+
+  if (glbptr >= ENDGLB) {
+    scerror("Global symbol table overflow");
+    return 0;
+  }
+  cptr = ptr = glbptr;
+  while(isalnum(*ptr++ = sctoupper(*sname++))); /* copy NAME */
+  cptr[GSIG] = 0;   /* Truncate globals to GSIG sig. chars */
+  cptr[IDENT] = id;
+  cptr[TYPE]  = typ;
+  cptr[STORAGE] = STATIK;
+  cptr[OFFSET]  = value;
+  cptr[OFFSET+1] = value >> 8;
+  if (addafter)             /* Set the link to this symbol */
+    *addafter = cptr;
+  temptr = cptr + LEFTLOW;  /* Initialize left pointer */
+  *temptr = 0;
+  temptr = cptr + RIGHTLOW; /* Initialize right pointer */
+  *temptr = 0;
+  glbptr += SYMSIZ;
+  return cptr;
+}
+
+
+/*
+ * Add a local symbol to the symbol table
+ * AN ATTEMPT TO FIND THE SYMBOL MUST BE MADE BEFORE
+ * IT IS ADDED!!
+ */
+addloc(sname, id, typ, value)
+  char *sname, id, typ;
+  int  value;
+{
+  char *ptr;
+  int  *temptr;
+
+  if (locptr >= ENDLOC) {
+    scerror("Local symbol table overflow");
+    return 0;
+  }
+  cptr = ptr = locptr;
+  while (isalnum(*ptr++ = *sname++));   /* copy NAME */
+  cptr[IDENT] = id;
+  cptr[TYPE]  = typ;
+  cptr[STORAGE] = STKLOC;
+  cptr[OFFSET]  = value;
+  cptr[OFFSET+1] = value >> 8;
+  if (addafter)             /* Set the link to this symbol */
+    *addafter = cptr;
+  temptr = cptr + LEFTLOW;  /* Set this symbol's left link */
+  *temptr = 0;
+  temptr = cptr + RIGHTLOW; /* Set this symbol's right link */
+  *temptr = 0;
+  locptr += SYMSIZ;
+  return cptr;
+}
+
+
+/*
+ *     Declare a static VARIABLE
+ *  (i.e. define for use)
+ *
+ * makes an entry into the symbol table so that
+ * subsequent references can call symbol by NAME
+ */
+declglb(typ)  /* TYPE is CCHAR or CINT */
+  int  typ;
+{
+  int  j, k, found;
+  char sname[NAMESIZE];
+
+  for (;;) {
+    for (;;) {
+      if (endst())
+        return;            /* do line */
+      k = 1;               /* assume one element */
+      j = match("*") ? POINTER : VARIABLE;
+      if (!symname(sname)) /* NAME ok? */
+        illname();         /* no */
+      if (found = findglb(sname)) /* already there? */
+        multidef(sname);
+      if (match("[")) {    /* ARRAY? */
+        if (j == POINTER)
+          errormmod();
+        if (k = needsub()) /* Get size, test for non-zero. */
+          j = ARRAY;
+        else { 
+          j = POINTER; /* If size is zero then it's a pointer */
+          k = 1;       /* Pointer contains one element */
+        }
+      }
+      if (!found)
+        addglb(sname, j, typ, k); /* add symbol */
+      break;
+    }
+    if (!match(","))
+      return;        /* more ? */
+  }
+}
+
+
+/*
+ *     Declare local variables
+ *
+ * works just like "declglb" but modifies machine stack
+ *     and adds symbol table entry with apropriate stack
+ *     OFFSET to find it again
+ */
+declloc(typ)  /* TYPE is CCHAR or CINT */
+  int  typ;
+{
+  int  j, k, found;
+  char sname[NAMESIZE];
+
+  for (;;) {
+    for (;;) {
+      if (endst())
+        return;            /* do line */
+      j = match("*") ? POINTER : VARIABLE;
+      if (!symname(sname)) /* NAME ok? */
+        illname();         /* no */
+      if (found = findloc(sname)) /* already there? */
+        multidef(sname);
+      if (match("[")) {    /* ARRAY? */
+        if (j == POINTER)
+          errormmod();
+        k = needsub(); /* get size */
+        if (k) {       /* !0 = ARRAY */
+          j = ARRAY;
+          if (typ == CINT)
+            k += k;
+        } else {  /* 0 = POINTER */
+          j = POINTER;
+          k = 2;
+        }
+      } else
+        k = ((typ == CCHAR) && (j != POINTER)) ? 1 : 2;
+
+      /* change machine stack */
+      stkptr -= k;
+      if (!found)
+        addloc(sname, j, typ, stkptr); /* add symbol */
+      break;
+    }
+    if (!match(","))
+      return;  /* more ? */
+  }
+}
+
+
+/*
+ * Search for a match in the global symbol table
+ * Global symbols are uppercase if 'trflag' is non-zero
+ * This routine compares only the first GSIG characters
+ * of the symbol name.
+ */
+findglb(sname)
+  char *sname;
+{
+  char tempsname[NAMESIZE];
+  int  i;
+
+  for (i = 0; (tempsname[i] = sctoupper(*sname++)) &&
+              (i < GSIG); ++i);
+  tempsname[GSIG] = 0; /* Truncate globals to GSIG sig. chars */
+  glbsname = tempsname;
+  if (glbptr == STARTGLB)
+    return addafter = 0;
+  return symsrch(STARTGLB);
+}
+
+
+/* Search for a match in the local symbol table */
+findloc(sname)
+  char *sname;
+{
+  char *ptr;
+
+  glbsname = sname;
+  if (locptr == STARTLOC)
+    return addafter = 0;
+  return symsrch(STARTLOC);
+}
+
+
+/* Search the symbol tree recursively */
+symsrch(symbol)
+  char *symbol;
+{
+  int  val;
+
+  if (!symbol)  /* Fail if we fell out of the tree */
+    return 0;
+  if (!(val = xcmpstr(glbsname, symbol))) /* Compare symbols */
+    return symbol;                        /* Exact match? */
+
+  /* Search the appropriate sub-tree */
+  addafter = symbol + ((val < 0) ? LEFTLOW : RIGHTLOW);
+  return (symsrch(*addafter));
+}
+
+
+/*
+ * Get a required ARRAY size
+ *
+ * This routine is envoked when a declared VARIABLE is followed
+ * by "[", and makes the subsript the absolute size of the
+ * ARRAY.
+ */
+needsub()
+{
+  int  num;
+
+  if (match("]"))
+    return 0;       /* null size */
+  /* any constant expression is valid.*/
+  num = constexpr();
+
+  if (num < 0) {
+    scerror("Absolute value of negative number used");
+    num = -num;   /* use abs val */
+  }
+  needbrack("]");   /* force a single dimension */
+  return num;
+}
+
+
+/* Dump all static VARIABLEs */
+dumpglbs()
+{
+  int  j;
+
+  cptr = STARTGLB;
+  if( cptr != glbptr )
+     setdseg();
+  while (cptr < glbptr) {
+    if (cptr[IDENT] != FUNCTION)
+      if (glbflag) {       /* do anything but FUNCTIONs */
+        global(cptr);      /* output NAME as global label */
+        defstorage();      /* define STORAGE */
+        j = cptr[OFFSET] + (cptr[OFFSET+1] << 8);
+        if ((cptr[TYPE] == CINT) || (cptr[IDENT] == POINTER))
+          j += j;
+        outhex(j);
+        nl();
+      } else
+        external(cptr);  /* define as external */
+    else                 /* Its a FUNCTION */
+      if (cptr[OFFSET] != FUNCTION)
+        external(cptr);  /* External FUNCTION */
+    cptr += SYMSIZ;
+  }
+}

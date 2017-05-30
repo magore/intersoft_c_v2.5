@@ -1,0 +1,133 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+#include "consts/scx"
+#include "vars/scx"
+#include "option/scx"
+
+/*
+ * This module contains the operating system dependent
+ * portions of the compiler (as opposed to the assembler
+ * dependent portions!).
+ */
+
+/*
+ * Get options from the command line 
+ *  - This function initializes options and parses the
+ *    command line setting options as required.  The input
+ *    and output files are opened.
+ */
+options(argc, argv) 
+  int argc, *argv;
+{
+  int  i;
+  char *argptr, outfile[130], infile[130];
+
+  if (argc < 2) {
+    pl("C <infile> [o=<outfile>] [-g] [-n] [+s] [lp=nn] \
+[dp=nn] [#d=nn]\n           [#g=nn] [#l=nn] [ll=nn] [lab=nn] [esc=c] \
+[stats=nn]\n           [f=nn]");
+    return 0;
+  }
+
+  /* Command line option defaults */
+  stats = PRTSTATS;
+  prepinput = SPECPREP;
+  escchar = ESCAPECH;
+  ctext = SOURCE;
+  glbflag = GLOBALS;
+  nxtlab = LABELNO;
+  litpools = LITPOOL;
+  defpools = DEFPOOL;
+  nargflag = PASSNARG;
+  numglbs = NOGLBS;
+  numlocs = NOLOCS;
+  numdefs = NODEFS;
+  wqtabs = WQTAB;
+  linesize = LINESZ;
+  optimize = OPTIMPARM;
+
+  /* Set up the input file and the default output file */
+  strcpy(infile, argv[1]);
+  strcpy(outfile, "*CO");
+
+  /* Loop through command line tokens */
+  for (i = 2; i < argc; i++) {
+    argptr = argv[i];
+    if (qstreq("+s", argptr) && (!argptr[2])) 
+      ctext = 1;
+    else
+      if (qstreq("-g", argptr) && (!argptr[2]))
+        glbflag = 0;
+      else
+        if (qstreq("o=", argptr))
+          strcpy(outfile, argptr + 2);
+        else
+          if (qstreq("lab=", argptr))
+            nxtlab = scatoi(argptr + 4);
+          else
+            if (qstreq("esc=", argptr)) {
+              prepinput = -1;
+              escchar = argptr[4];
+            } else
+              if (qstreq("lp=", argptr))
+                litpools = scatoi(argptr + 3);
+              else 
+                if (qstreq("dp=", argptr))
+                  defpools = scatoi(argptr + 3);
+                else
+                  if (qstreq("#d=", argptr))
+                    numdefs = scatoi(argptr + 3);
+                  else
+                    if (qstreq("#g=", argptr))
+                      numglbs = scatoi(argptr + 3);
+                    else
+                      if (qstreq("#l=", argptr))
+                        numlocs = scatoi(argptr + 3);
+                      else
+                        if (qstreq("ll=", argptr))
+                          linesize = scatoi(argptr + 3);
+                        else
+                          if (qstreq("-n", argptr) &&
+                              (!argptr[2]))
+                            nargflag = 0;
+                          else
+                            if (qstreq("stats=", argptr))
+                              stats = scatoi(argptr + 6);
+                            else 
+                       if (qstreq("f=",argptr))
+                               optimize = scatoi(argptr + 2);
+                              else {
+                                ++errcnt;
+                                pl("Unrecognized option:");
+                                pl(argptr);
+                                return 0;
+                              }
+  }
+  if (!(input = fopen(infile, "r"))) {
+    pl("Cannot open input file");
+    return 0;
+  }
+  if (!(output = fopen(outfile, "w"))) {
+    pl("Cannot open output file");
+    return 0;
+  }
+  firstlab = nxtlab;
+  litlab = getlabel();  /* Literal pool label */
+  return -1;
+}
+
+
+/* This function finds the file extension within a string */
+/* Not used in the TRS80 implementation */
+/*
+findext(s)
+  char *s;
+{
+  while (*s && (*s != '/'))
+    s++;
+  return s;
+}
+*/

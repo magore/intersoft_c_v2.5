@@ -1,0 +1,680 @@
+;
+;     The Z80 runtime support for 
+;     Intersoft C Version 2.5
+;
+;     Copyright (c) 1982 by Intersoft Unlimited
+;
+;     By: Mike Gore
+;
+;     HL = primary register
+;     DE = secondary register
+;     BC = temporary register
+;
+!CCSW
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+; CCSW - Jump to the appropriate case in a switch statement.
+;        DE - Switch value.  HL - Switch table address.
+;        The switch table contains 16 bit values:
+;        No. of cases, address of default case,
+;        constant 1, address of case 1,
+;        constant 2, address of case 2,
+;        constant 3, address of case 3,
+;         ...
+;
+ENTRY CCSW
+CCSW:
+        PUSH    HL        ; Save the switch table address.
+        LD      C,(HL)    ; BC <= table count + 1;
+        INC     HL
+        LD      B,(HL)
+        INC     BC
+        INC     HL
+        INC     HL
+        INC     HL
+SWLOOP: DEC     BC        ; Jump to the default case if the entire
+        LD      A,C
+        OR      B
+        JR      Z,SWDEF   ; table has been searched.
+        LD      A,(HL)    ; Compare the table constant with the switch
+        XOR     E         ; value.
+        JR      NZ,SWEND1
+        INC     HL
+        LD      A,(HL)
+        XOR     D
+        JR      NZ,SWEND2
+        INC     HL        ; If the switch value and constant are equal
+        POP     BC        ; jump to the address in the following word
+                          ; of the table being careful to fix the stack.
+SWEXIT: POP     BC        ; Pop the return address.
+        LD      A,(HL)    ; HL <== (HL)
+        INC     HL
+        LD      H,(HL)
+        LD      L,A
+        JP      (HL)
+SWEND1: INC     HL        ; If the switch value and constant aren't equal
+SWEND2: INC     HL        ; then set HL to the address of the next table
+        INC     HL        ; entry.
+        INC     HL
+        JR      SWLOOP
+SWDEF:  POP     HL        ; None of the constants matched, use the
+        INC     HL        ; address of the default case.  Set HL to
+        INC     HL        ; the address of the address of the default
+        JR      SWEXIT    ; case and exit normally.
+      END
+!CCPINT
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCPINT - store the word in HL at the address in DE.
+;          Doesn't change HL.
+;
+    ENTRY  CCPINT
+CCPINT:
+      LD    A,L
+      LD    (DE),A
+      INC   DE
+      LD    A,H
+      LD    (DE),A
+      RET
+      END
+!CCGINT
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCGINT - HL is loaded with the word at the address in HL
+;
+    ENTRY  CCGINT
+CCGINT:
+      LD      A,(HL) ;byte addressed at HL is loaded into A
+      INC     HL          ; increment HL
+      LD      H,(HL) ;byte addressed at HL is loaded into H
+      LD      L,A         ; load A into L
+      RET
+      END
+!CCGIR
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCGIR - THE RESET ENTRY TO GET AN INTEGER FROM THE STACK.
+;
+     ENTRY CCGIR
+CCGIR:
+      POP   BC
+      LD    A,(BC)
+      INC   BC
+      PUSH  BC
+      LD    L,A
+      LD    H,0
+;
+;
+; CCGIS - GET INTEGER OFFSET (HL) FROM THE STACK INTO HL.
+;
+     ENTRY CCGIS
+CCGIS:
+      ADD   HL,SP
+      LD    A,(HL)
+      INC   HL
+      LD    H,(HL)
+      LD    L,A
+      RET
+      END
+!CCGI2
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCGI2 - GET A LOCAL VARIABLE INTO THE SECONDARY REGISTER:
+;         THE SECONDARY REGISTER ALREADY CONTAINS THE STACK
+;         OFFSET + 2.
+;
+     ENTRY CCGI2
+CCGI2:
+      EX    DE,HL       ; SAVE THE PRIMARY REG.
+      ADD   HL,SP
+      LD    A,(HL)             ; LOW BYTE
+      INC   HL
+      LD    H,(HL)             ; HIGH BYTE
+      LD    L,A
+      EX    DE,HL
+      RET
+      END
+!CCGC2
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCGC2 - GET A CHARACTER FROM THE STACK INTO THE SECONDARY
+;         REGISTER:  THE SECONDARY REGISTER ALREADY CONTAINS
+;         THE STACK OFFSET + 2.
+;
+     ENTRY CCGC2
+CCGC2:
+      EX    DE,HL
+      ADD   HL,SP
+      LD    L,(HL)
+      LD    H,0
+      EX    DE,HL
+      RET
+      END
+!CCPIR
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCPIR - RESET ENTRY TO PUT AN INTEGER ON THE STACK.
+;
+     ENTRY CCPIR
+CCPIR:
+      POP   BC
+      LD    A,(BC)
+      INC   BC
+      PUSH  BC
+      LD    E,A
+      LD    D,0
+;
+;
+; CCPIS - PUT INTEGER INTO DE + SP FROM HL
+;
+     ENTRY CCPIS
+CCPIS:
+      EX    DE,HL
+      ADD   HL,SP
+      LD    (HL),E
+      INC   HL
+      LD    (HL),D
+      EX    DE,HL
+      RET
+      END
+!CCSUB
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCSUB -          HL = DE - HL
+;
+    ENTRY  CCSUB
+CCSUB:
+        OR      A           ; clear the carry bit
+        EX      DE,HL       ; swap DE & HL
+        SBC     HL,DE       ; subtract with carry
+        RET
+      END
+!CCMULT
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCMULT -          HL = HL * DE
+;
+    ENTRY  CCMULT
+CCMULT:
+        LD      A,H         ; multiplier = 0 ?
+        OR      L
+        RET     Z
+        ;
+        EX      DE,HL       ; swap in multiplicand
+        LD      A,H
+        OR      L           ; is it  = 0 ?
+        RET     Z
+        ;
+        LD      B,H         ; load BC with multiplier
+        LD      C,L
+        LD      HL,0        ; set result to zero
+        LD      A,16        ; iterate for 16 bits
+CCML1:  ADD     HL,HL       ; multiply result by 2
+        EX      DE,HL       ; swap in multiplier
+        ADD     HL,HL       ; test bit 15 of multiplier
+        EX      DE,HL       ; swap it back
+        JR      NC,CCML2    ; was bit 15 set ?
+        ADD     HL,BC       ; add in multiplicand
+CCML2:  DEC     A           ; loop till zero
+        JR      NZ,CCML1    ;
+        RET
+      END
+!CCDIV
+.Z80
+      EXT   CCNEG
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCDIV - HL = DE / HL     HL = quotient  DE = remainder
+;
+CCDIV::
+      LD    A,H   ; divisor check
+      OR    L 
+      JR    Z,CCDIVE ; if zero fault
+      LD    A,H   ; sign of result is sign of
+      XOR   D     ; divisor XOR dividend
+      SRL   A     ; save in bit 6
+      LD    B,A   ; save
+      LD    A,D   ; sign of remainder in sign of
+      AND   080H  ; dividend (clear sign bit)
+      OR    B     ; include sign of result
+      PUSH  AF    ; save on stack
+      BIT   7,H   ; test sign BIT of divisor
+      CALL  NZ,CCNEG
+      EX    DE,HL ; swap
+      BIT   7,H   ; negative?
+      CALL  NZ,CCNEG
+      EX    DE,HL ; swap back
+      CALL  CCDIVU       ; unsigned divide
+      POP   AF    ; get back signs
+      BIT   7,A   ; test for remainder
+      PUSH  AF    ; save away again
+      CALL  NZ,CCNEG
+      EX    DE,HL ; swap remainder and result
+      POP   AF    ; restore sign bits
+      BIT   6,A   ; test for negative result
+      CALL  NZ,CCNEG
+      RET
+;
+CCDIVE:                  ; tried to divide by 0
+      LD    HL,32767
+      LD    DE,0
+      RET
+;
+CCDIVU: LD   C,L   ; Dividend in BC
+      LD    B,H
+      LD    HL,0    ; Set the remander to 0
+      LD    A,16  ; Do for 16 bits
+;
+;    At the start this is what we have ::
+;    ___________________
+;    :   HL   :    DE   :
+;    -------------------
+;     Remainder, Divedend
+;    __________
+;    :    BC   :
+;    ----------
+;     Divisor
+;
+;   The Divedend is shifted into the Remainder and
+;   tested against the Divisor, If the Remainder is
+;   > the Divisor the Quotient is set in Bit 0 of
+;   Divedend which is now vacant from the last
+;   shift. At end of looping the Quotient is now in
+;   DE, and the Remainder is in HL, with the Divisor
+;   untouched in BC.
+;
+CCDU1:       EX    DE,HL ; Remainder in DE
+      ADD   HL,HL   ; Shift Divedend Left into Remainder
+      EX    DE,HL   ; Remainder in DE
+      ADC   HL,HL   ; Shift Remainder Left 
+      OR    A     ; Reset Carry
+      SBC   HL,BC ; See if Remainder > Divisor
+      ;
+      ;    Assume Remainder > Divisor
+      ;
+      INC   DE    ; Set Quotient in Bit 0 of Dividend
+      JP    NC,CCDU2
+      ADD   HL,BC ; Nope Set it all back !
+      DEC   DE       ; Reset Quotient in Bit 0 of Dividend
+CCDU2: DEC   A     ; Decrement for our 16 bit loop
+      JR    NZ,CCDU1
+      RET         ; Done
+      END
+!CCOR
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCOR -        HL = HL OR DE
+;
+    ENTRY  CCOR
+CCOR:
+        LD      A,L         ; load A with L (low byte)
+        OR      E           ; A = L OR E
+        LD      L,A         ; L = A
+        LD      A,H         ; load A with H (high byte)
+        OR      D           ; A = H OR D
+        LD      H,A         ; H = A
+        RET
+      END
+!CCAND
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCAND -     HL = HL AND DE 
+;
+    ENTRY  CCAND
+CCAND:
+        LD      A,L         ; load A with L (low byte)
+        AND     E           ; A = L AND E
+        LD      L,A         ; L = A 
+        LD      A,H         ; load A with H (high byte)
+        AND     D           ; A = H AND D
+        LD      H,A         ; load A with H
+        RET
+      END
+!CCXOR
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCXOR -     HL = HL XOR DE
+;
+    ENTRY  CCXOR
+CCXOR:
+        LD      A,L         ; load A with L (low byte)
+        XOR     E           ; A = L XOR E
+        LD      L,A         ; L = A
+        LD      A,H         ; load A with H (high byte)
+        XOR     D           ; A = H XOR D
+        LD      H,A         ; H = A
+        RET
+      END
+!CCAS
+.Z80
+      EXT   CCNEG
+TRUE  EQU   1
+FALSE EQU   0
+;
+; CCASR - right shift DE HL BITS giving HL
+;
+CCASR::
+      BIT   7,H   ; test  -'ve direction
+      JR    Z,CCASR1 ;     +'ve direction
+      CALL  CCNEG ; negate the count
+      JR    CCASL1       ; shift left
+      ;
+CCASR1: LD   A,L   ; test for shifts
+      AND   0F0H  ; >= 16
+      OR    H
+      JR    NZ,RET0 ; RETURN 0
+      LD    A,L   ; restore the count
+      INC   A     ; count plus 1
+      EX    DE,HL ; swap registers
+CCASR2: DEC  A     ; count down
+      RET   Z     ; we're finished
+      SRL   H     ; shift right
+      RR    L     ; rotate right L
+      JR    CCASR2       ; again ...
+;
+; CCASL - shift DE left HL bits, with result in HL
+;
+CCASL::
+      BIT   7,H   ; test -'ve count
+      JR    Z,CCASL1 ; we have a +'ve count
+      CALL  CCNEG ; negate the count
+      JR    CCASR1   ; shift right
+      ;
+CCASL1: LD   A,L   ; test for shifts
+      AND   0F0H  ; >= 16
+      OR    H
+      JR    NZ,RET0 ; RETURN 0
+      LD    A,L   ; restore the count
+      INC   A     ; count plus 1
+      EX    DE,HL ; swap registers
+CCASL2: DEC  A     ; count down
+      RET   Z     ; we're done
+      ADD   HL,HL ; shift HL left
+      JR    CCASL2       ; again ...
+      ;
+RET0:
+      LD    HL,0
+      RET
+      END
+!CCNEG
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCNEG - negate HL
+;
+    ENTRY  CCNEG
+CCNEG:
+        LD      A,L     ; complement L
+        CPL
+        LD      L,A
+        LD      A,H     ; complement H
+        CPL
+        LD      H,A
+        INC     HL      ; sneaky way to negate HL
+        RET
+      END
+!CCCOM
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCCOM - complement HL
+;
+    ENTRY  CCCOM
+CCCOM:
+        LD      A,L         ; complement L
+        CPL
+        LD      L,A
+        LD      A,H         ; complement H
+        CPL
+        LD      H,A
+        RET
+      END
+!CCNOT
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCNOT - LOGICAL NOT OPERATOR
+;
+    ENTRY  CCNOT
+CCNOT:
+        LD      A,H         ; test if zero
+        OR      L
+        LD      HL,TRUE
+        RET     Z           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+      END
+!CCEQ
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCEQ - TEST IF HL == DE
+;
+    ENTRY  CCEQ
+CCEQ:
+        OR      A           ; reset carry
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        RET     Z           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+      END
+!CCNE
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCNE - TEST IF HL != DE
+;
+    ENTRY  CCNE
+CCNE:
+        OR      A           ; reset carry
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        RET     NZ          ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+      END
+!CCULT
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCULT - TEST IF HL > DE (UNSIGNED)
+;
+    ENTRY  CCULT
+CCULT:
+         OR      A           ; reset carry
+         EX      DE,HL       ; swap registers
+         SBC     HL,DE       ; HL = HL - DE
+         LD      HL,TRUE
+         RET     C           ; return TRUE
+         LD      HL,FALSE
+         RET                 ; return FALSE
+      END
+!CCULE
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCULE - TEST IF HL >=  DE UNSIGNED)
+;
+    ENTRY  CCULE
+CCULE:
+        OR      A           ; reset carry
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        RET     NC          ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+      END
+!CCUGT
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCUGT - TEST IF HL < DE (UNSIGNED)
+;
+    ENTRY  CCUGT
+CCUGT:
+        OR      A           ; reset carry
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        RET     C           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+      END
+!CCUGE
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCUGE - TEST IF HL <= DE (UNSIGNED)
+;
+    ENTRY  CCUGE
+CCUGE:
+        OR      A           ; reset carry
+        EX      DE,HL       ; SWAP DE & HL
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        RET     NC          ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+      END
+!CCLT
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCLT - TEST IF HL > DE (SIGNED)
+;
+    ENTRY  CCLT
+CCLT:
+        OR      A           ; reset carry
+        EX      DE,HL       ; SWAP DE & HL
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        JP      PE,CCLT1    ; overflow ? (reverse test)
+        RET     M           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+CCLT1:  RET     P           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+      END
+!CCLE
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCLE - TEST IF HL => DE (SIGNED)
+;
+    ENTRY  CCLE
+CCLE:
+        OR      A           ; reset carry
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        JP      PE,CCLE1    ; overflow ? (reverse test)
+        RET     P           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+CCLE1:  RET     M           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+      END
+!CCGT
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCGT - TEST IF HL < DE (SIGNED)
+;
+    ENTRY  CCGT
+CCGT:
+        OR      A           ; reset carry
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        JP      PE,CCGT1   ; overflow ? (reverse test)
+        RET     M          ; return TRUE
+        LD      HL,FALSE
+        RET                ; return FALSE
+CCGT1:  RET     P          ; return TRUE
+        LD      HL,FALSE
+        RET                ; return FALSE
+      END
+!CCGE
+.Z80
+TRUE  EQU   1
+FALSE EQU   0
+;
+;
+; CCGE - TEST IF HL <= DE (SIGNED)
+;
+    ENTRY  CCGE
+CCGE:
+        OR      A           ; reset carry
+        EX      DE,HL       ; SWAP DE & HL
+        SBC     HL,DE       ; HL = HL - DE
+        LD      HL,TRUE
+        JP      PE,CCGE1    ; overflow ? (reverse test)
+        RET     P           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+CCGE1:  RET     M           ; return TRUE
+        LD      HL,FALSE
+        RET                 ; return FALSE
+    END
+ 

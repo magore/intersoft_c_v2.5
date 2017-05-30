@@ -1,0 +1,1079 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+#include "consts/scx"
+#include "vars/scx"
+
+/* The TRS-80 version uses restarts 3 and 4 when the
+ * "f=1" option (optimize) is in effect.
+ */
+
+/* This module contains the code generator for the
+ * compiler.  This is the assembler dependent section
+ * (as opposed to the operating system dependent section).
+ */
+
+/* Define switch constants which describe the modes of operands
+ * to binary operators, as determined by binmode().
+ * The constant names consist of two three-letter
+ * identifiers, one for each operand, in the order they appear
+ * in the source code. RES indicates an expression result,
+ * CON a constant, and VAR a simple variable to be fetched.
+ */
+#define VARVAR 36
+#define CONVAR 33
+#define VARCON 12
+#define RESCON 10
+#define CONRES 17
+#define RESVAR 34
+#define VARRES 20
+#define RESRES 18
+#define CONCON 9
+
+
+/*
+ * Enter a runtime routine in the global symbol table
+ * if necessary.  Also generate the call to the runtime routine.
+ */
+runtime(sname)
+  char *sname;
+{
+  if (!findglb(sname))
+    addglb(sname, FUNCTION, CINT, 0);
+  ot("CALL ");
+  outsym(sname);
+  nl();
+}
+
+
+/* Begin a comment line for the assembler */
+comment()
+  outbyte(';');
+
+
+/* Put a colon out to the output file */
+col()
+{
+  outbyte(':');
+  nl();
+}
+
+/* Print all assembler info before any code is generated */
+header() {
+  comment();
+  nl();
+  comment();
+  outstr(BANNER);
+  nl();
+  ol("CSEG");
+  ol(".z80");
+  ol("EXT CCMAIN");
+}
+
+/*
+ * Output an assembler directive to start the data segment.
+ */
+setdseg()
+  ol("DSEG");
+
+
+/* Print any assembler stuff needed after all code */
+trailer()
+  ol("END ");
+
+
+/*
+ * Fetch a simple variable value into the primary register
+ * The compiler never sign extends characters.
+ */
+getmem(sym)
+  char *sym;
+{ int i;
+
+  bflush(); /* beware the waiting push!*/
+  if ( sym[STORAGE] == STATIK)
+  {
+    ot("LD HL,(");
+    outsym(sym + NAME);
+    outstr(")");
+    nl();
+    if ((sym[IDENT] != POINTER) && (sym[TYPE] == CCHAR))
+    ol("LD H,0");
+  }
+  else /* the variable is on the stack: fetch it. */
+  {
+    if ( sym[IDENT] != POINTER && sym[TYPE] == CCHAR)
+    { 
+      immed();
+      outhex(((sym[OFFSET] & 255) + ((sym[OFFSET+1] & 255) << 8)) - stkptr);
+      nl();
+      ol("ADD HL,SP");
+      ol("LD L,(HL)");
+      ol("LD H,0");
+    }
+    else
+    { i = (sym[OFFSET] + (sym[OFFSET+1] << 8)) - stkptr + 2;
+      if( optimize != 1 || i > 253 )
+      {
+        immed();
+        outhex(i);
+        nl();
+        runtime("ccgis");
+      }
+      else
+      {
+        ol("RST 32");
+        ot("DEFB ");
+        outhex(i);
+        nl();
+      }
+    } 
+  }
+}
+/*
+ * Fetch the address of the specified symbol plus offset n into the
+ * primary register.
+ */
+getlc2(sym,n)
+  char *sym;
+  int n;
+{
+  immed();
+  outhex((sym[OFFSET] + (sym[OFFSET+1] << 8)) - stkptr + n);
+  nl();
+  ol("ADD HL,SP");
+}
+
+/* Fetch the address of the specified symbol into the primary reg. */
+getloc(sym)
+ char *sym;
+{
+  return getlc2(sym, 0);
+}
+
+/*
+ * Store the primary register into the specified static
+ * memory cell.
+ */
+putmem(sym)
+  char *sym;
+{ int i;
+
+  if (sym[STORAGE] == STATIK)
+  {
+    if ((sym[IDENT] != POINTER) && (sym[TYPE] == CCHAR)) {
+      ol("LD A,L");
+      ot("LD (");
+      outsym(sym + NAME);
+      outstr("),A");
+      nl();
+    } else {
+      ot("LD (");
+      outsym(sym + NAME);
+      outstr("),HL");
+      nl();
+    }
+  }
+  else /* the beast is a local variable. store it. */
+  {
+    if (sym[IDENT] != POINTER && sym[TYPE] == CCHAR)
+    { /* it is a stack char variable */
+      swap();
+      immed();
+      outhex((sym[OFFSET] + (sym[OFFSET+1] << 8)) - stkptr);
+      nl();
+      ol("ADD HL,SP");
+      ol("LD (HL),E");
+      swap();
+    }
+    else
+    { /* it is an integer: store it */
+      i = (sym[OFFSET] + (sym[OFFSET+1] << 8)) - stkptr + 2;
+      if ( optimize != 1 || i > 253 )
+      {
+        immedsec();
+        outhex(i);
+        nl();
+        runtime("ccpis");
+      }
+      else
+      {
+        ol("RST 24");
+        ot("DEFB ");
+        outhex(i);
+        nl();
+      }
+    }
+  }
+}
+
+
+/*
+ * Store the specified object type in the primary register
+ * at the address on the top of the stack.
+ */
+putstk(typeobj)
+  char typeobj;
+{
+  fpop();
+  if (typeobj == CCHAR) {
+    ol("LD A,L");
+    ol("LD (DE),A");
+  } else
+    runtime("ccpint");
+}
+
+
+/*
+ * Fetch the specified object type indirectly through the
+ * primary register into the primary register.
+ */
+indirect(typeobj)
+  char typeobj;
+{
+  if (typeobj == CCHAR) {
+    ol("LD L,(HL)");
+    ol("LD H,0");
+  } else
+    runtime("ccgint");
+}
+
+
+/*
+ * Load the number of arguments passed to a function into reg A
+ * This may be suppressed via a command line option
+ *  - nargflag controls whether or not the load is performed
+ */
+passnargs(nargs)
+  int  nargs;
+{
+  if (nargflag) {
+    if (nargs) {
+      ot("LD A,");
+      outhex(nargs);
+      nl();
+    } else
+      ol("XOR A");
+  }
+}
+
+
+/* Swap the primary and secondary registers */
+swap()
+  ol("EX DE,HL");
+
+
+/*
+ * Print partial instruction to get an immediate value into
+ * the primary register.
+ */
+immed()
+{
+  bflush();
+  ot("LD HL,");
+}
+
+/* Push the primary register onto the stack */
+fpush() {
+  ol("PUSH HL");
+  stkptr -= 2;
+}
+
+
+/* Push the secondary register onto the stack */
+pushs() {
+  ol("PUSH DE");
+  stkptr -= 2;
+}
+
+
+/* Pop the top of the stack into the secondary register */
+fpop() {
+  ol("POP DE");
+  stkptr += 2;
+}
+fpopp(){
+  ol("POP HL");
+  stkptr +=2;
+}
+
+/* Swap the primary register and the top of the stack */
+swapstk()
+  ol("EX (SP),HL");
+
+
+/* Call the specified subroutine name */
+fcall(sname)
+  char *sname;
+{
+  bflush();
+  ot("CALL ");
+  outsym(sname);
+  nl();
+}
+
+
+/* Call a run-time routine */
+scall(sname)
+  char *sname;
+{
+  runtime(sname);
+}
+
+
+/* Return from subroutine */
+fret()
+  ol("RET");
+
+
+/* Perform subroutine call to value on top of stack */
+callstk() {
+  immed();
+  outstr("$+5");
+  nl();
+  swapstk();
+  ol("JP (HL)");
+  stkptr += 2;
+}
+
+
+/* Jump to specified internal label number */
+jump(label)
+  int label;
+{
+  ot("JP ");
+  printlabel(label);
+  nl();
+}
+
+
+/* Test the primary register and jump if false to label */
+testjump(label)
+  int  label;
+{
+  ol("LD A,H");
+  ol("OR L");
+  ot("JP Z, ");
+  printlabel(label);
+  nl();
+}
+
+
+/* Test the primary register and jump if true to label */
+ntestjump(label)
+  int label;
+{
+  ol("LD A,H");
+  ol("OR L");
+  ot("JP NZ, ");
+  printlabel(label);
+  nl();
+}
+
+
+/* Define and output a label for a GLOBAL location */
+global(lab)
+  char *lab;
+{
+  ot("ENTRY ");
+  outsym(lab);
+  nl();
+  outsym(lab);
+  col();
+}
+
+
+/* Define a label as an external symbol */
+external(lab)
+  char *lab;
+{
+  ot("EXT ");
+  outsym(lab);
+  nl();
+}
+
+
+/* Print pseudo-op to define a byte */
+defbyte()
+  ot("DEFB ");
+
+
+/* Print pseudo-op to define storage */
+defstorage()
+  ot("DEFS ");
+
+
+/* Print pseudo-op to define a word */
+defword()
+  ot("DEFW ");
+
+
+/* Modify the stack pointer to the new value indicated */
+modstk(newsp)
+  int  newsp;
+{
+  int  k;
+
+  k = newsp - stkptr;
+  if (!k)
+    return newsp;
+  if (k >= 0) {
+    if (k < 7) {
+      if (k & 1) {
+        ol("INC SP");
+        k--;
+      }
+      while (k) {
+        ol("POP BC");
+        k -= 2;
+      }
+      return newsp;
+    }
+  } else {
+    if (k > -7) {
+      if (k & 1) {
+        ol("DEC SP");
+        k++;
+      }
+      while (k) {
+        ol("PUSH BC");
+        k += 2;
+      }
+      return newsp;
+    }
+  }
+  swap();
+  immed();
+  outhex(k);
+  nl();
+  ol("ADD HL,SP");
+  ol("LD SP,HL");
+  swap();
+  return newsp;
+}
+
+
+/* Double the primary register */
+doublereg(lval)
+  int *lval;
+{
+  if (lval[1] == CCONST)
+    lval[2] *= 2;
+  else
+  {
+    if (*lval && !lval[1])
+      rvalue(lval);        /* if a var, fetch it now!*/
+    ol("ADD HL,HL");
+  }
+}
+/*
+ * Add the prmary and secondary registers
+ *   (results in primary)
+ */
+fadd(lval,lval2)
+  int *lval, *lval2;
+{
+  int *p1, *p2;
+
+  p1 = lval;
+  p2 = lval2;
+
+  switch(binmode(p1,p2))
+  {
+    case VARVAR: getmem(*p2);
+                 if(*p1 == *p2)
+                   ol("ADD HL,HL");
+                 else
+                 {
+                   getme2(*p1);
+                   addcode();
+                 }
+                 break;
+
+    case CONVAR: p1 = lval2;
+                 p2 = lval;
+    case VARCON: getmem(*p1);
+                 if (abs(p2[2]) <= 4)
+                   incadd(p2[2]);
+                 else
+                 {
+                   force2(p2);
+                   addcode();
+                 }
+                 break;
+ 
+    case RESCON: swalpush();
+                 p1=lval2;
+                 p2=lval;
+    case CONRES: if ( abs(p1[2]) <= 4)
+                   incadd(p1[2]);
+                 else
+                 {
+                   force2(p1);
+                   addcode();
+                 }
+                 break;
+     
+    case RESVAR: swalpush();
+                 p1 = lval2;
+                 p2 = lval;
+    case VARRES: getme2(*p1);
+                 addcode();
+                 break;
+
+    case RESRES: fpop();
+                 addcode();
+  }
+  result(lval, lval2);
+  lval[1] = CINT;
+} 
+
+addcode()
+  ol("ADD HL,DE");
+
+/* add n to the primary register by INC or DEC instructions */
+incadd(n)
+  int n;
+{
+  int k;
+  k=abs(n);
+  if (n<0)
+    while(k--)
+      ol("DEC HL");
+  else
+    while(k--)
+      ol("INC  HL");
+}
+
+
+/*
+ * Subtract the primary register from the secondary
+ * (results in primary)
+ */
+fsub(lval, lval2)
+  int *lval, *lval2;
+{
+  noncomop(lval, lval2);
+  runtime("ccsub");
+  result(lval, lval2);
+  lval[1] = CINT;
+}
+
+/*
+ * Multiply the primary and secondary registers
+ * (results in primary)
+ */
+mult(lval, lval2)
+  int *lval, *lval2;
+{
+  comop(lval, lval2);
+  runtime("ccmult");
+}
+
+/*
+ * Divide the secondary register by the primary
+ * (quotient in primary, remainder in secondary)
+ */
+div(lval1,lval2)
+  int lval1[],lval2[];
+{
+  noncomop(lval1, lval2);
+  if (isptr(lval1) || isptr(lval2))
+    runtime("ccdivu");
+  else
+    runtime("ccdiv");
+}
+
+
+/* Modulo is the remainder of the above operation */
+modop(lval1,lval2)
+  int lval1[],lval2[];
+{
+  div(lval1,lval2);
+  swap();
+}
+
+
+/*
+ * Inclusive or the primary and secondary registers
+ * (results in primary)
+ */
+orop(lval, lval2)
+  int *lval, *lval2;
+{
+  comop(lval, lval2);
+  runtime("ccor");
+}
+
+/*
+ * Exclusive or the primary and secondary registers
+ * (results in primary)
+ */
+xorop(lval, lval2)
+  int *lval, *lval2;
+{
+  comop(lval, lval2);
+  runtime("ccxor");
+}
+
+/*
+ * And the primary and secondary registers
+ * (results in primary)
+ */
+andop(lval, lval2)
+  int *lval, *lval2;
+{
+  comop(lval, lval2);
+  runtime("ccand");
+}
+
+/*
+ * Arithmetic shift right the secondary register by the
+ * number of bits in the primary (results in primary)
+ */
+asr(lval, lval2)
+  int *lval, *lval2;
+{
+  noncomop(lval, lval2);
+  runtime("ccasr");
+}
+
+/*
+ * Arithmetic shift left the secondary register by the
+ * number of bits in the primary (resuls in primary)
+ */
+asl(lval, lval2)
+  int *lval, *lval2;
+{
+  noncomop(lval, lval2);
+  runtime("ccasl");
+}
+
+/*
+ * Form the two's complement of the primary register
+ */
+neg()
+  runtime("ccneg");
+
+/*
+ * Form the one's complement of the primary register
+ */
+com()
+  runtime("cccom");
+
+/* Form the logical complement of the primary register */
+notop()
+  runtime("ccnot");
+
+/* Increment the primary register by one */
+inc()
+  ol("INC HL");
+
+
+/* Decrement the primary register by one */
+dec()
+  ol("DEC HL");
+
+
+/*
+ * Following are the conditional operators. They compare the
+ * secondary register against the primary and put a literal
+ * -1 in the primary if the condition is true, else the primary
+ * is set to 0.
+ */
+
+
+/* Test for equal */
+eqop(lval, lval2)
+  int *lval, *lval2;
+{
+  comop(lval, lval2);
+  runtime("cceq");
+}
+
+/* Test for not equal */
+neop(lval, lval2)
+  int *lval, *lval2;
+{
+  comop(lval, lval2);
+  runtime("ccne");
+}
+
+/* Test for less than, signed or unsigned */
+ltop(lv1,lv2)
+  int lv1[], lv2[];
+{
+  noncomop(lv1, lv2);
+  if (isptr(lv1) || isptr(lv2))
+    runtime("ccult");
+  else
+    runtime("cclt");
+}
+
+/* Test for less than or equal */
+leop(lv1,lv2)
+  int lv1[], lv2[];
+{
+  noncomop(lv1, lv2);
+  if( isptr(lv1) || isptr(lv2))
+    runtime("ccule");
+  else
+    runtime("ccle");
+}
+
+/* Test for greater than */
+gtop(lv1,lv2)
+  int lv1[],lv2[];
+{
+  noncomop(lv1, lv2);
+  if (isptr(lv1) || isptr(lv2))
+    runtime("ccugt");
+  else
+    runtime("ccgt");
+}
+
+/* Test for greater than or equal (signed) */
+geop(lv1,lv2)
+  int lv1[], lv2[];
+{
+  noncomop(lv1, lv2);
+  if (lv1[2] || lv2[2])
+    runtime("ccuge");
+  else
+    runtime("ccge");
+}
+
+/* double the top of stack and add it to the primary reg, with implicit pop */
+dbstadd(lval, lval2)
+  int *lval, *lval2;
+{
+  if( lval[1] == CCONST)
+  { 
+    lval[2]*=2;
+    fadd(lval, lval2);
+  }
+  else
+  {
+    noncomop(lval, lval2);
+    swap();
+    ol("ADD HL,HL");
+    ol("ADD HL,DE");
+  }
+}
+
+/* as for dbstadd but subtraction instead */
+dbstsub(lval, lval2)
+  int *lval, *lval2;
+{
+  if( lval[1] == CCONST)
+  { 
+    lval[2] *= 2;
+    fsub(lval, lval2);
+  }
+  else
+  {
+    noncomop(lval, lval2);
+    swap();
+    ol("ADD HL,HL");
+    swap();
+    runtime("ccsub");
+  }
+}
+
+
+/* Halve the contents of the primary register, unsigned */
+/* This is invariable a result already in the register. */
+halfreg()
+{
+  swap();
+  ol("LD HL,2");
+  runtime("ccdivu");
+}
+ 
+
+/* Dump the literal pool */
+dumplits()
+{
+  int  k, j;
+
+  if (!litptr)
+    return;
+  printlabel(litlab);  /* print literal label */
+  col();
+  for (k = 0; k < litptr; ) { /* Loop through all literals */
+    defbyte();      /* pseudop to define a byte */
+    j = 12;
+    for (;;) {      /* Dump at most 12 bytes per line */
+      outhex(litq[k++]);
+      if ((!j--) || (k >= litptr)) {  /* Terminate a line */
+        nl();
+        break;
+      }
+      outbyte(',');   /* Separate items on a line */
+    }
+  }
+  litptr = 0;           /* Reinitialize the literal pool */
+  litlab = getlabel();
+}
+
+
+/*
+ *   Declare argument TYPEs
+ *
+ * Called from newfunc this routine modifies the symbol
+ * table entry created in newfunc() to agree with the
+ * actual order of declared arguments
+ *  Mike Gore  - March 1981
+ */
+getarg(t, top)  /* t : CCHAR or CINT */
+  int  t, top;  /* top : stack offset */
+{
+  char n[NAMESIZE], *argptr;
+  int  j, locaddr;
+  /* "top" tells how many arguments newfunc found
+   * while scaning arguments. From this we can
+   * calculate the actual stack offset and stuff
+   * it back into the symbol table.
+   */
+  for (;;) {
+    j = match("*") ? POINTER : VARIABLE;
+    if (symname(n)) {
+      /* If it's a pointer skip stuff between [] */
+      if (match("[")) { 
+        if (j == POINTER)
+          errormmod();
+        while (inbyte() != ']')
+          if (endst())
+            break;
+        j = POINTER;  /* mark as POINTER */
+      }
+      /* If non zero we found the entry! */
+      if (argptr = findloc (n)) {
+        /* stuff away type info that we just found */
+        argptr[IDENT] = j;
+        argptr[TYPE]  = t;
+        /* reverse stacking offset */
+        locaddr = top - (argptr[OFFSET+1] << 8) -
+                  argptr[OFFSET];
+        /* Replace with reversed offset */
+        argptr[OFFSET] = locaddr;
+        argptr[OFFSET+1] = locaddr >> 8;
+      } else
+        error("Extra argument name");
+    } else
+      illname();
+    argstk -= 2;
+    if (endst())
+      return;
+    if (!match(","))
+      error("Missing comma in argument list");
+  }
+}
+
+
+/* Dump the switch table */
+dumpsw()
+{
+  int  i, j;
+
+  printlabel(swlab);
+  outbyte(':');
+  defword();
+  outhex(swcnt);
+  outbyte(',');
+  printlabel(swdef);
+  nl();
+  for (i = 0; i < swcnt;) {
+    defword();
+    for (j = 0; ; ++j) {
+      outhex(swtab[i++]);
+      outbyte(',');
+      printlabel(++swlab);
+      if ((j < 4) && (i < swcnt))
+        outbyte(',');
+      else
+        break;
+    }
+    nl();
+  }
+}
+/*
+ * Load the secondary register with a constant.
+ */
+immedsec()
+ ot("LD DE,");
+
+/*
+ * This section contains extensions to the code generator
+ * which greatly enhance the quality of the code generated by
+ * deferring the fetching of variables until thy are required,
+ * particularly for binary arithmetic operators.
+ */
+
+/* Fetch a variable's value into the secondary reg without hurting the
+ * primary.
+ */
+getme2(sym)
+  char *sym;
+{
+  if (sym[STORAGE] == STATIK)
+  { 
+    ot("LD DE,(");
+    outsym(sym + NAME);
+    outstr(")");
+    nl();
+    if(sym[IDENT] != POINTER && sym[TYPE] == CCHAR)
+      ol("LD D,0");
+  }
+  else
+  {
+    /* stack variable */
+    immedsec();
+    outhex (sym[OFFSET] + (sym[OFFSET+1] << 8) - stkptr + 2);
+    nl();
+    if (sym[IDENT] == POINTER || sym[TYPE] == CINT)
+      runtime("ccgi2");
+    else
+      runtime("ccgc2");
+  }
+}
+
+/* Create a push hl instruction which can be rescinded later. */
+bpush()
+{
+  bflush();
+  bflag = 1;
+}
+
+/* Flush out buffered push created by bpush */
+bflush()
+{
+  if( bflag )
+   fpush();
+  bflag=0;
+}
+
+/* If the last code produced was a bpush, rescind it. Otherwise,
+ * The compiler logic has an error in code generation.
+ */
+swalpush()
+{
+  if (!bflag)
+    ol("CODEGEN FAILURE- CALL INTERSOFT");
+  bflag = 0;
+}
+
+/*
+ * Generate code to set up the arguments of a non-commutative
+ * binary operator, eg /, %, <<, etc.
+ */
+noncomop(lval1, lval2)
+  int *lval1, *lval2;
+{
+  switch(binmode(lval1, lval2)) /* based on the modes of the operands */
+  {
+    case CONRES: force2(lval1);
+                 break;
+
+    case RESCON: swalpush();
+                 swap();
+                 force1(lval2);
+                 break;
+   
+    case VARCON: force1(lval2);
+    case VARRES: getme2(*lval1);
+                 break;
+
+    case RESRES: fpop();
+                 break;
+
+    case CONVAR: getmem(*lval2);
+                 force2(lval1);
+                 break;
+
+    case RESVAR: swalpush();
+                 swap();
+                 getmem(*lval2);
+                 break;
+
+    case VARVAR: getmem(*lval2);
+                 if(*lval2 == *lval1)
+                 { 
+                   ol("LD D,H");
+                   ol("LD E,L");
+                 }
+                 else
+                   getme2(*lval1);
+  }
+  lval1[1] = CINT;        /*Mark it as no longer a variable, but a result */
+}
+
+/* Do the same, with simplifications, for commutative operators */
+
+comop(lval1, lval2)
+  int *lval1, *lval2;
+{
+  int *p1, *p2;
+
+  p1 = lval1;
+  p2 = lval2;
+
+  switch(binmode(p1,p2))
+  {
+    case VARVAR: getmem(*p2);
+                 if(*p1 == *p2)
+                 {
+                   ol("LD D,H");
+                   ol("LD E,L");
+                 }
+                 else
+                   getme2(*p1);
+                 break;
+
+    case CONVAR: p1 = lval2;
+                 p2 = lval1;
+    case VARCON: getmem(*p1);
+                 force2(p2);
+                 break;
+ 
+    case RESCON: swalpush();
+                 p1=lval2;
+                 p2=lval1;
+    case CONRES: force2(p1);
+                 break;
+     
+    case RESVAR: swalpush();
+                 p1 = lval2;
+                 p2 = lval1;
+    case VARRES: getme2(*p1);
+                 break;
+
+    case RESRES: fpop();
+  }
+  lval1[1] = CINT;
+}
+
+
+/* Come up with a number which describes the states of both arguments */
+binmode(lval1, lval2)
+  int *lval1, *lval2;
+{
+  return (unmode(lval2) << 3) | unmode(lval1);
+}
+
+/* Find the mode of the object described by lval:
+ * 1 if constant,
+ * 2 if the result of an expression,
+ * 4 if a simple variable.
+ */
+unmode(lval)
+  int *lval;
+{
+  if (*lval && !lval[1])
+    return 4;
+  if (lval[1] == CCONST)
+    return 1;
+  return 2;
+}

@@ -1,0 +1,70 @@
+;
+; Assembler epilogue for the
+; Intersoft C Compiler Version 2.5
+; TRS-80 Model 1 MACRO-80 VERSION
+;
+; Copyright (C) 1982 by Intersoft Unlimited
+;
+; by: Mike Gore, Richard McMurray
+;
+.Z80
+RST3A  EQU  4006H   ; Address of restart vector 3.
+;
+ CSEG
+;
+; Perform a system call.  The calling sequence from C is:
+; syscal(address, af, bc, de, hl)
+;
+; The register pairs hl, de, bc and af are loaded with
+; the specified values, then the routine at "address" is
+; called.  The af register pair is returned in the hl
+; register pair.
+;
+SYSCAL::
+ POP  IX ; Return address
+ POP  HL
+ POP  DE
+ POP  BC
+ POP  AF
+ POP  IY ; The address of the routine to call
+ PUSH IY
+ PUSH AF
+ PUSH BC
+ PUSH DE
+ PUSH HL
+ PUSH IX
+ LD   IX,CCBACK ; Get the return address
+ PUSH IX
+ JP   (IY)      ; Call the routine
+CCBACK:
+ PUSH AF
+ POP  HL
+ RET
+;
+; The routine to exit a C program immediately
+; (without closing files).
+;
+CCEXIT::
+ POP  IX           ; Return address.
+ LD   HL,CCRSV     ; Restore the restart vectors.
+ LD   DE,RST3A     ; 3 and 4.
+ LD   BC,6
+ LDIR
+ POP  HL           ; Jump address.
+ LD   SP,(CCSTAC)  ; Restore the stack pointer.
+ JP   (HL)
+;
+; Data
+;
+ DSEG
+CCSTAC::
+ DEFS 2  ; Save area for the initial stack pointer.
+CCRSV::
+ DEFS 6  ; Save area for the restart vectors 3 and 4.
+ END
+
+
+
+
+
+

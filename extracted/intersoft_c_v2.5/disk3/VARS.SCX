@@ -1,0 +1,140 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+
+/*
+ * This module contains all the global variable definitions
+ * for the compiler.
+ */
+
+
+/*
+ *   Reserve some storage words
+ *  
+ * charvec[128] - Type of each character. (see initchar()) 
+ * *swtab   -  Address of the switch table 
+ * swlab    -  First label of the switch table
+ * swdef    -  Label of the default case 
+ * swcnt    -  Number of cases in the switch 
+ * comma    -  Used to tell the comma operator parser
+ *             when commas are legal 
+ * *symtab  -  symbol table 
+ * *glbptr  -  ptr to next entry 
+ * *locptr  -  ptr to next entry 
+ * *wq      -  control structure stack 
+ * *wqptr   -  pointer to next entry 
+ * *litq    -  literal pool 
+ * *macq    -  macro buffer 
+ * *macqn   -  pointer to name 
+ * *macqt   -  pointer to text 
+ * *line    -  parsing buffer 
+ * *mline   -  preprocess buffer 
+ * litlab   -  label # assigned to literal pool 
+ * argstk   -  function arg sp 
+ * trflag   -  translate symbol upper case if true 
+ * quote[2] -  literal string for '"' 
+ * *cptr    -  work ptr to any char buffer 
+ * 
+ *  Globals for symbol table tree manipulation.
+ * 
+ * glbsname  -  Pointer to symbol name to be matched by symsrch() 
+ *              Not passed as an argument because symsrch() is 
+ *              a recursive tree search. 
+ * *addafter -  Address of the link field last accessed by
+ *              symsrch() or zero.  When a symbol is added
+ *              the link field is set to the address of the
+ *              new symbol, linking it into the tree. 
+ * prpafter  -  Same as "addafter" but for macros (#defines) 
+ *              "prpafter" is an index, its NULL value is -1
+ * macleft   -  Indicates whether or not the left branch was
+ *              taken in a #define (macro) tree search.
+ *              Used with 'addafter'
+ * *macqr    -  Address of the vector of right pointers for the 
+ *              #define (macro) tree 
+ * *macql    -  As above for the right pointers 
+ * 
+ *  Storage for command line options
+ * 
+ * stats     -  If non-zero then compiler statistics are given 
+ * firstlab  -  First local label number used 
+ * nxtlab    -  Next available local label number 
+ * ctext     -  If non-zero then the source is included in
+ *              the output as comments. 
+ * glbflag   -  If non-zero then globals are defined 
+ * litpools  -  Size of the literal pool in bytes 
+ * numdefs   -  The maximum number of #defines (macros) 
+ * defpools  -  Size of the #define (macro) pool in bytes 
+ * nargflag  -  If non-zero then the number of arguments passed 
+ *              to a function is loaded into a register before
+ *              the call 
+ * numglbs   -  The maximum number of global symbols required 
+ * numlocs   -  The maximum number of local symbols required 
+ * linesize  -  The maximum length of source and preprocessed
+ *              lines 
+ * wqtabs    -  Size of the while queue 
+ * escchar   -  The escape character 
+ * prepinput -  Non-zero if escape sequences are to be
+ *              expected for special characters. 
+ * optimize  -  1 for small code (default), 3 for fast,
+ *              2 for a reasonable compromise.
+ *
+ *  THESE MUST BE CONTIGUOUS. THEY ARE INITIALIZED BY A
+ *  LOOP IN MAIN
+ * 
+ * litptr   -  ptr to next literal pool entry 
+ * instring -  Flag for preprocessor. 
+ * condlvl  -  Nesting level for conditional compilation 
+ * macptr   -  macro pool index 
+ * macnum   -  next available macro slot 
+ * lptr     -  pointers into the preprocessed line
+ * mptr     -  pointer into the source line
+ * stkptr   -  compiler relative stack pointer 
+ * ncmp     -  # open compound statements 
+ * errcnt   -  # errors in compilation 
+ * input    -  iob # for input file 
+ * output   -  iob # for output file (if any) 
+ * input2   -  iob # for "include" file 
+ * bflag    -  buffering flag for code generator
+ * eof      -  set true on final input eof 
+ * fpstack[FPMAX] -  filepointer stack for nested includes 
+ * fpstkptr -  pointer for that stack 
+ * lastst   -  last parsed statement TYPE 
+ */
+
+
+/*
+ * Reserve some storage words
+ */
+char charvec[128];
+int  *swtab, swlab, swdef, swcnt, comma;
+char *symtab, *glbptr, *locptr;
+int  *wq, *wqptr;
+char *litq, *macq;
+int  *macqn, *macqt;
+char *line, *mline;
+int  litlab, argstk, trflag;
+char quote[2], *cptr;
+/*
+ * Globals for symbol table tree manipulation.
+ */
+int glbsname, *addafter, prpafter, macleft, *macqr, *macql;
+
+/*
+ * Storage for command line options
+ */
+int  stats, firstlab, nxtlab, ctext, glbflag, litpools;
+int  numdefs, defpools, nargflag, numglbs, numlocs;
+int  linesize, wqtabs;
+char escchar;
+int  prepinput;
+int  optimize;
+/*
+ * THESE MUST BE CONTIGUOUS, THEY ARE INITIALIZED VIA A
+ * LOOP IN MAIN
+ */
+int  litptr, instring, condlvl, macptr, macnum, lptr;
+int  mptr, stkptr, ncmp, errcnt, input, output, input2;
+int  bflag, constflag;
+int  eof, fpstack[FPMAX], fpstkptr, lastst;

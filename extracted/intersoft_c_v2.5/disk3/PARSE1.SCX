@@ -1,0 +1,481 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+#include "consts/scx"
+#include "vars/scx"
+
+
+/*
+ * This module contains part of the parser.  This module
+ * contains code to parse data definitions, functions
+ * and statements.
+ * The code to parse expressions is in module "parse2";
+ * the code to parse primitives (constants, etc.) is
+ * in module "parse3".
+ */
+
+/*
+ * Process all input text
+ *
+ * At this level only static declarations and function
+ * definitions are legal.
+ */
+parse()
+{
+  blanks();
+  while (!eof) {     /* do until no more input */
+    if (qmatch("char")) {
+      declglb(CCHAR);
+      ns();
+    } else
+      if (qmatch("int")) {
+        declglb(CINT);
+        ns();
+      } else
+        newfunc();
+    blanks();
+  }
+}
+
+
+/*
+ * Begin a FUNCTION
+ *
+ * Called from parse, this routine tries to make a function
+ * out of what follows.
+ */
+newfunc() {
+  char n[NAMESIZE], *ptr;
+  int  argtop;
+
+  if (!symname(n)) {
+    scerror("Illegal function name or declaration");
+    kill();        /* invalidate line */
+    return;
+  }
+  if (ptr = findglb(n)) { 
+    /*
+     * If the ident field isn't a function it's a variable,
+     * thus the function name is multidefined.
+     */
+    if (ptr[IDENT] != FUNCTION)
+       multidef(n);
+    else {
+      /*
+       * If we have marked the offset field as a function
+       * we have a multidefined function name
+       */
+      if (ptr[OFFSET] == FUNCTION)
+        multidef(n);
+      else
+        /*
+         * Now we mark the offset field we just tested as a 
+         * function since the name is not multidefined. The
+         * compiler may see a reference to a function before
+         * it's definition , this is the reason for the 
+         * apparent redundancy in the code used above.
+         */
+        ptr[OFFSET] = FUNCTION;
+    }
+  } else
+    /* If not in table, define as FUNCTION now */
+    addglb(n, FUNCTION, CINT, FUNCTION);
+  /* We had better see open parenthesis for args */
+  if (!match("("))
+    scerror("Missing opening parenthesis");
+  global(n);      /* output FUNCTION NAME */
+  locptr = STARTLOC;  /* Clear local stack pointer */
+  argstk = 0;  /* Reset the argument count */
+  while (!match(")")) { /* Count arguments between () */
+    if (symname(n)) { /* Any legal NAME bumps argcnt */
+      if (findloc(n))
+        multidef(n) ;
+      else {
+        /*
+         * add local symbol to be processed
+         * later by getarg()
+         */
+        addloc(n, 0, 0, argstk);
+        argstk += 2;
+      }
+    } else {
+      scerror("Illegal argument name");
+      junk();
+    }
+    blanks();
+    if (eof)
+      break;
+    /* If not closing parenthesis, should be comma */
+    if (!srceq(")")) {
+      if (!match(","))
+        scerror("Missing comma in argument list");
+    }
+  }
+  /*
+   * Set argtop to the current offset. We will
+   * pass this to getarg() so the the stacking offsets
+   * can be reversed
+   */
+  argtop = argstk;
+  while (argstk) {
+    /*
+     * Now let user declare what TYPEs those arguments
+     * were
+     */
+    blanks();
+    if (qmatch("char")) {
+      getarg(CCHAR, argtop);
+      ns();
+      continue;
+    }
+    if (qmatch("int")) {
+      getarg(CINT, argtop);
+      ns();
+      continue;
+    }
+    scerror("Wrong type or number of arguments");
+    break;
+  }
+  stkptr = 0;       /* preset stack POINTER */
+  /*
+   * Do a statement and return.  If the statement was a
+   * return then the extra return is skipped.
+   */
+  lastst = STEXP;
+  if (statement() != STRETURN) {
+    modstk(0);
+    fret();
+  }
+  stkptr = 0;        /* reset stack ptr again */
+  locptr = STARTLOC; /* deallocate all locals */
+  dumplits();        /* Dump the literal pool */
+}
+
+
+/*
+ * Statement parser
+ *
+ * Called whenever the syntax requires a statement.
+ * This routine parses that statement and returns the
+ * statement type.
+ */
+statement() {
+  blanks();
+  if ((!ch()) && eof)
+    return lastst;
+  else
+    if (match("{"))
+      compound();
+    else
+      if (qmatch("if")) {
+        doif();
+        lastst = STIF;
+      } else
+        if (qmatch("while")) {
+          dowhile();
+          lastst = STWHILE;
+        } else
+          if (qmatch("do")) {
+            dodo();
+            lastst = STDO;
+          } else
+            if (qmatch("for")) {
+              dofor();
+              lastst = STFOR;
+            } else
+              if (qmatch("switch")) {
+                doswitch();
+                lastst = STSWITCH;
+              } else
+                if (qmatch("case")) {
+                  docase();
+                  lastst = STCASE;
+                } else
+                  if (qmatch("default")) {
+                    dodefault();
+                    lastst = STDEFAULT;
+                  } else
+                    if (qmatch("return")) {
+                      doreturn();
+                      ns();
+                      lastst = STRETURN;
+                    } else
+                      if (qmatch("break")) {
+                        dobreak();
+                        ns();
+                        lastst = STBREAK;
+                      } else
+                        if (qmatch("continue")) {
+                          docont();
+                          ns();
+                          lastst = STCONT;
+                        } else
+                          if (match(";"))
+                            ;
+                          else {
+                            expression();
+                            ns();
+                            lastst = STEXP;
+                          }
+  return lastst;
+}
+
+
+/* Compound statement ("{}") */
+compound() {
+  int oldsp, newsp;
+
+  /* Parse local definitions if we just entered a function */
+  if (!ncmp++) {
+    oldsp = stkptr;
+    while (!eof) {    /* Parse all local declarations. */
+      blanks();
+      if (qmatch("char")) {
+        declloc(CCHAR);
+        ns();
+      } else
+        if (qmatch("int")) {
+          declloc(CINT);
+          ns();
+        } else
+          break;
+    }
+    newsp = stkptr;
+    stkptr = oldsp;
+    stkptr = modstk(newsp); /* Allocate all local variables. */
+  }
+  while (!match("}"))  /* Process statements within a block. */
+    if (eof)
+      return;
+    else
+      statement();
+  --ncmp;              /* close current level */
+}
+
+
+/* "if" statement */
+doif() {
+  int  flab1, flab2;
+
+  flab1 = getlabel();    /* get label for false branch */
+  test(flab1);           /* get expression and branch false */
+  statement();           /* if true do a statement */
+  blanks();              /* Skip whitespace */
+  if (!qmatch("else")) { /* if ... else ... ? */
+    /* Simple if; print false label */
+    printlabel(flab1);
+    col();
+    return;
+  }
+  /* An  if ... else ... statement */
+  jump(flab2 = getlabel()); /* jump around false code */
+  printlabel(flab1);        /* print false label */
+  col();
+  statement();              /* and do else clause */
+  printlabel(flab2);        /* print true label */
+  col();
+}
+
+
+/* "while" statement */
+dowhile() {
+  int  lwq[WQSIZ];  /* allocate local loop control block */
+
+  lwq[WQCONT] = lwq[WQLOOP] = getlabel();  
+  lwq[WQLAB] = getlabel();  /* and exit label */
+  lwq[WQTYPE] = STWHILE;
+  addwhile(lwq);            /* add entry to queue */
+  printlabel(lwq[WQLOOP]);  /* loop label */
+  col();
+  test(lwq[WQLAB]);       /* see if true */
+  statement();            /* if so, do a statement */
+  jump(lwq[WQLOOP]);      /* loop to label */
+  printlabel(lwq[WQLAB]); /* exit label */
+  col();
+  delwhile();
+}
+
+
+/* "do..while" statement */
+dodo() {
+  int  lwq[WQSIZ];  /* allocate local loop control block */
+
+  lwq[WQLOOP] = getlabel();  /* and looping label */
+  lwq[WQLAB] = getlabel();   /* and exit label */
+  lwq[WQCONT] = getlabel();  /* and continue label */
+  lwq[WQTYPE] = STDO;
+  addwhile(lwq);             /* add entry to queue */
+  printlabel(lwq[WQLOOP]);   /* loop label */
+  col();
+  statement();               /* if so, do a statement */
+  blanks();                  /* Skip whitespace */
+  if (!qmatch("while"))
+    scerror("Missing WHILE in DO...WHILE");
+  printlabel(lwq[WQCONT]);
+  col();
+  ntest(lwq[WQLOOP]);        /* see if true */
+  ns();
+  printlabel(lwq[WQLAB]);    /* exit label */
+  col();
+  delwhile();
+}
+
+
+/* "for" statement */
+dofor() {
+  int  lwq[WQSIZ];  /* allocate local loop control block */
+
+  lwq[WQLOOP] = getlabel(); /* and looping label */
+  lwq[WQLAB] = getlabel();  /* and exit lbel */
+  lwq[WQCONT] = 0;          /* and continue label */
+  lwq[WQFOR] = getlabel();  /* kludge for for */
+  lwq[WQTYPE] = STFOR;
+  needbrack("(");
+  if (!match(";")) {
+    expression();
+    ns();
+  }
+  printlabel(lwq[WQLOOP]);  /* loop label */
+  col();
+  if (!match(";")) {
+    expression();
+    testjump(lwq[WQLAB]);
+    ns();
+  }
+  if (!match(")")) {
+    jump(lwq[WQFOR]);
+    lwq[WQCONT] = getlabel();
+    printlabel(lwq[WQCONT]);
+    col();
+    expression();
+    jump(lwq[WQLOOP]);
+    needbrack(")");
+    printlabel(lwq[WQFOR]);
+    col();
+  } else
+    lwq[WQCONT] = lwq[WQLOOP];
+  addwhile(lwq);
+  statement();            /* Parse a statement */
+  jump(lwq[WQCONT]);      /* Loop to label */
+  printlabel(lwq[WQLAB]); /* Exit label */
+  col();
+  delwhile();
+}
+
+
+/* "Switch" statement */
+doswitch() {
+  int  lwq[WQSIZ], *ptr, i,
+       lswtab[SWCOUNT];  /* Table to hold case constants. */
+/*
+ * These variables save the state of the globals for 
+ * processing a switch statement to allow nesting of
+ * switches.
+ */ 
+ int  svswtab, svswlab, svswdef, svswcnt;
+
+  lwq[WQLAB] = getlabel();  /* Label for end of switch. */
+  lwq[WQTYPE] = STSWITCH;
+  svswtab = swtab;    /* Save state of switch variables. */
+  svswlab = swlab;
+  svswdef = swdef;
+  svswcnt = swcnt;
+  swtab = lswtab;     /* Set up switch variables. */
+  swlab = getlabel();
+  for (i = 0; i < SWCOUNT; ++i)
+    getlabel();
+  swcnt = 0;
+  swdef = lwq[WQLAB];
+  addwhile(lwq);
+  needbrack("(");
+  expression();
+  swap();
+  needbrack(")");
+  immed();
+  printlabel(swlab);
+  nl();
+  scall("ccsw"); /* Primary = swlab, Secondary = expression. */
+  statement();
+  jump(lwq[WQLAB]);
+  dumpsw();      /* Dump the switch table. */
+  printlabel(lwq[WQLAB]);  /* Label end of switch. */
+  col();
+  delwhile();
+  swtab = svswtab;   /* Restore the saved state of the */
+  swlab = svswlab;   /* switch variables. */
+  swdef = svswdef;
+  swcnt = svswcnt;
+}
+
+
+/*  "Case" statement */
+docase()
+{
+  int  *ptr, val;
+
+  if (!(ptr = readwhile()))
+    return;
+  if (ptr[WQTYPE] != STSWITCH)
+    scerror("CASE valid only in SWITCH");
+  printlabel(swlab + swcnt + 1);
+  col();
+
+  /* Get case constant */
+  val = constexpr();
+  ncol();
+  swtab[swcnt++] = val;
+}
+
+
+/* "default" statement */
+dodefault() {
+  int  *ptr;
+
+  ncol();
+  if (!(ptr = readwhile()))
+    return;
+  if (ptr[WQTYPE] != STSWITCH)
+    scerror("DEFAULT valid only in switch");
+  printlabel(swdef = swcnt + swlab + 1);
+  col();
+}
+
+
+/* "return" statement */
+doreturn() {
+  if (!endst())
+    expression(); /* Get expression to be returned */
+  modstk(0);      /* Clean up stack */
+  fret();         /* Exit the function */
+}
+
+
+/* "break" statement */
+dobreak() {
+  int  *ptr;
+
+  /* see if any loops or switches are in effect. */
+  if (!(ptr = readwhile())) {
+    scerror("BREAK valid only in SWITCH or loop structure");
+    return;
+  }
+  jump(ptr[WQLAB]);  /* jump to exit label */
+}
+
+
+/* "continue" statement */
+docont() {
+  int  *ptr;
+
+  /*
+   * See if any "while"s are open.  The "while" must be a
+   * loop.  This prevents a "continue" within a "switch"
+   * from branching to the top of the "switch".
+   */
+  if (!(ptr = readloop()))
+    return;
+  jump(ptr[((ptr[WQTYPE] == STFOR) && !ptr[WQCONT]) ?
+           WQLOOP : WQCONT]);
+}

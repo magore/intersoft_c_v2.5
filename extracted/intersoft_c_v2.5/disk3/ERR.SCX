@@ -1,0 +1,129 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+#include "consts/scx"
+#include "vars/scx"
+
+
+/*
+ * This module contains the error reporting code in the
+ * compiler.
+ */
+
+
+/* Report an error */
+scerror(ptr)
+  char *ptr;
+{
+  int  k, oldoutput;
+
+  /*
+   * Output the offending line, a pointer to the problem, and a 
+   * description of the problem as comments in the output.
+   */
+  comment();
+  outstr(line);
+  nl();
+  comment();
+  for (k = 0; k < lptr; ++k)
+    outbyte((line[k] == TABCH) ? TABCH : ' ');
+  outbyte('|');
+  nl();
+  comment();
+  outstr("*** Error: ");
+  outstr(ptr);
+  nl();
+
+  /* Now echo the error message to the standard output file */
+  oldoutput = output;
+  output = 0;
+  nl();
+  outstr(line);
+  nl();
+  for (k = 0; k < lptr; ++k)
+    outbyte((line[k] == TABCH) ? TABCH : ' ');
+  outbyte('|');
+  nl();
+  outstr("*** Error: ");
+  outstr(ptr);
+  nl();
+  output = oldoutput;
+  ++errcnt;
+}
+
+
+/* Called when an illegal NAME is discovered */
+illname()
+{
+  scerror("Illegal symbol name, deleted");
+  junk();
+}
+
+
+/* Called whenever a multiply defined IDENTifier is found */
+multidef(sname)
+  char *sname;
+{
+  scerror("Symbol already defined");
+  comment();
+  outstr(sname);
+  nl();
+}
+
+
+/*
+ * Called when a pointer to a pointer or a multi-dimensional
+ * array is declared.
+ */
+errormmod()
+  scerror("Multiple declaration modifiers");
+
+
+/* Called whenever an lvalue was required, but wasn't there */
+needlval()
+  scerror("Lvalue not found");
+
+
+/* Summarize errors after compilation */
+errorsummary() {
+  int  outsave;
+ 
+  if (ncmp)
+    scerror("Missing closing brace");
+
+  /* Put out the number of errors in the compilation. */
+  comment();
+  outstr(" /* ");
+  outdec(errcnt);
+  outstr(" errors */");
+  nl();
+
+  /* Save output file POINTER */
+  outsave = output;
+  output = 0;
+  nl();
+  outdec(errcnt);
+  outstr(" errors");
+  nl();
+  if (stats) { /* Print label numbers used in compilation */
+    nl();
+    outstr("First label number (in hex) = 0x");
+    xhex(firstlab, 0);
+    outstr(", Last label used = 0x");
+    xhex(nxtlab-1, 0);
+    nl();
+  }
+  output = outsave;
+}
+
+/*
+ * Produce an error if the given item is not a constant.
+ */
+concheck(lval)
+  int *lval;
+{
+  if( lval[1] != CCONST )
+    scerror("constant expression required");
+}

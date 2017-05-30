@@ -1,0 +1,508 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+#include "consts/scx"
+#include "vars/scx"
+
+
+/*
+ * This module contains the source preprocessor:
+ * Preprocess source code.
+ *  1) Multiple whitespace characters are changed to a
+ *     single space.
+ *  2) Comments are removed.
+ *  3) Strings and character constants are passed through
+ *     unchanged.
+ *  4) Macro substitution is performed.
+ *  5) Process all preprocessor commands (lines starting
+ *     with #).
+ */
+preprocess() {
+  char lc, sname[NAMESIZE], *ptr;
+  int  k, index;
+
+  for (;;) {
+    mptr = lptr = 0;
+    if (instring)     /* Preprocess remainder of string */
+      prepstr();
+
+    /* Handle preprocessor commands (except #define) */
+    if (!lptr)
+      while (pcommand()) {
+        inline();
+        mptr = lptr = 0;
+      }
+
+    /* Preprocess a source line */
+    while (ch()) {
+      switch (ch()) {
+
+        /* Turn blocks of whitespace into a single space */
+        case ' ' :
+        case TABCH :
+          keepch(' ');
+          skipwhitespace();
+          break;
+
+        /* Remove comments */
+        case '/' :
+          if (nch() != ASTERISK) {
+            keepch(gch());  /* Wasn't a comment after all. */
+            break;
+          }
+          adv(2);
+          for (;;) {   /* Skip characters until the comment */
+                       /* terminator or EOF is found. */
+           if ((ch() == ASTERISK) && (nch() == '/')) {
+              adv(2);
+              break;
+            }
+            if (!ch()) { /* Search for the comment */
+              inline();  /* terminator. */
+              if (eof)
+                break;
+            }
+            else
+              adv1();
+          } 
+          break;
+
+        /*
+         * Pass character constants.  If there is no other
+         * unescaped apostrophe on the line then insert one.
+         */
+        case APOST :
+          lc = APOST;
+          keepch(gch());
+          while (ch()) {
+            keepch(ch());
+            if ((ch() == APOST) && (lc != escchar)) {
+              lc = 0;
+              adv1();
+              break;
+            }
+            lc = gch();
+          }
+          if (lc)
+            scerror("Missing apostrophe , part of line not \
+preprocessed");
+          break;
+
+        /*
+         * Pass strings.  Strings may take more than one
+         * line.  If an unescaped end of line is found
+         * within a string then insert a quote and report
+         * an error.
+         */
+        case DQUOTE :
+          instring = 1;
+          keepch(gch());
+          prepstr();
+          break;
+
+        /* Macro substitution */
+        default :
+          if (scisalpha(ch())) {
+            for (k = 0; isalnum(ch());) {
+              if (k < NAMEMAX)
+                sname[k++] = ch();
+              adv1();
+            }
+            sname[k] = 0;
+            index = findmac(sname);
+            if (index)
+              ptr = macq + index;
+            else
+              ptr = sname;
+            while (*ptr)
+              keepch(*ptr++);
+          } else
+            if (prepinput) {
+              /* Preprocess special characters. */
+              switch (lc = gch()) {
+                case ASTERISK :
+                  switch(ch()) {
+                    case ':' :     /* *: = | */
+                      keepch('|');
+                      gch();
+                      break;
+                    case APOST :    /* *' = ~ */
+                      keepch('~');
+                      gch();
+                      break;
+                    case '@' :     /* *@ = ^ */
+                      keepch('^');
+                      gch();
+                      break;
+                    default :  /* Save all others "as is" */
+                      keepch(lc);
+                  } 
+                  break;
+  
+                case '(' :
+                  switch(ch()) {
+                    case '.' :     /* (. = [ */
+                      keepch('[');
+                      gch();
+                      break;
+                    case '$' :     /* ($ = { */
+                      keepch('{');
+                      gch();
+                      break;
+                    default :  /* Save all others "as is" */
+                      keepch(lc);
+                  } 
+                  break;
+
+                case '.' :         /* .) = ] */
+                  if (ch() == ')') {
+                    keepch(']');
+                    gch();
+                  } else
+                    keepch(lc); /* Save all others "as is" */
+                  break;
+
+                case '$' :         /* $) = } */
+                  if (ch() == ')') {
+                    keepch('}');
+                    gch();
+                  } else
+                    keepch(lc); /* Save all others "as is" */
+                  break;
+
+                default :
+                  keepch(lc);
+              } 
+            }
+            else
+              /* No preprocessing of special characters. */
+              keepch(gch());
+     } 
+    }
+    keepch(0);        /* Terminate the input line. */
+    if (mptr > MPMAX)
+      scerror("Preprocess buffer overflow, line truncated");
+    lptr = mptr = 0;
+    ptr = line;
+    line = mline;
+    mline = ptr;
+
+    /* Handle the #define preprocessor command */
+    if (qmatch("#define")) {
+      addmac();
+      inline();
+    } else
+      break;
+  }
+}
+
+
+/*
+ * This routine processes all preprocessor commands.
+ * Currently supported:
+ *  #define <symbol> <text>
+ *    - Note that we do not support macros with arguments.
+ *  #include "file"
+ *  #include <file>
+ *    - Note that angle brackets and quotes have the same
+ *      effect, there is no default place to search for
+ *      files.
+ * #asm, #endasm
+ * #ifdef, #ifndef, #else, #endif
+ *    - Note that we do not support #if because we cannot
+ *      evaluate constant expressions.
+ * #line
+ *    - Note that while we accept this we do not take any
+ *      action on it.  Our error messages do not give the
+ *      input file and line number.
+ *
+ * If the line is a preprocessor command this routine
+ * returns -1, otherwise 0 is returned.
+ */
+pcommand() {
+  /*
+   * Return 0 unless the current line is a preprocessor
+   * command.  #define is a special case, it is handled
+   * after the line has been preprocessed.
+   */
+  if (ch() != '#')
+    return 0;
+  if (qmatch("#define"))
+    return lptr = 0;   /* Reset the line. */
+
+  /* Determine the preprocessor command and process it */
+  adv1();            /* Skip the #. */
+  if (qmatch("asm"))
+    doasm();
+  else
+    if (qmatch("include"))
+      doinclude();
+    else
+      if (qmatch("ifdef"))
+        ifdef(-1);
+      else
+        if (qmatch("ifndef"))
+          ifdef(0);
+        else
+          if (qmatch("endif")) {
+            if (condlvl)
+              --condlvl;
+            else
+              scerror("#endif outside #ifdef or #ifndef ignored");
+          } 
+          else
+            if (qmatch("else")) {
+              if (condlvl)
+                skiptill("#endif");
+              else
+                scerror("#else outside #ifdef or #ifndef ignored");
+            } 
+            else
+              if (qmatch("line"))
+                ;
+              else
+                scerror("Unknown preprocessor command ignored");
+  return -1;
+}
+
+
+/*
+ * "#asm" preprocessor directive.
+ * enters mode where assembly language statements are
+ * passed through the parser intact.
+ */
+doasm()
+{
+  int k;
+
+  k = 0;
+  while (!k) {
+    inline();                  /* get and print lines */
+    if (k = qmatch("#endasm")) /* until ... */
+      comment();
+    outstr(line);
+    nl();
+  }
+  kill();     /* Erase current line */
+}
+
+
+/*
+ * "#include" preprocessor directive.  Includes the indicated
+ * file into the input stream.
+ */
+doinclude() {
+  int  newfp;
+
+  if (!(stripquotes() && (newfp=fopen(chaddr(), READ))))
+    scerror("Cannot open file");
+  else
+    if (!fppushed())
+      scerror("Too many nested includes");
+    else
+      input = newfp;
+  kill();      /* Erase current line */
+}
+
+
+/* Process an #ifdef or #ifndef construct */
+ifdef(typecode)
+  int  typecode;
+{
+  int  k;
+  char sname[NAMESIZE];
+
+  skipwhitespace();
+  /* Get the macro's name. */
+  for (k = 0; isalnum(ch()) && (k < NAMEMAX); ++k)
+    sname[k] = gch();
+  sname[k] = 0;
+  k = findmac(sname);  /* Attempt to find the macro */
+  ++condlvl;
+  if (k) {
+    if (!typecode)
+      skiptill("#else"); /* Was defined, shouldn't have been */
+  } else {
+    if (typecode)
+      skiptill("#else"); /* Wasn't defined, should have been */
+  }
+}
+
+
+/*
+ * "#ifdef" and "#ifndef" preprocessor directive cont'd.
+ * Skip over source lines until #else or #endif is found.
+ * It is skipped over as well.  Nested #ifdef and #ifndef
+ * constructs are skipped as well.
+ * "s" is a pointer to either "#endif" or "#else".  One can
+ * force a search for #endif by calling this routine with
+ * "#endif".  This routine will search for either #else or
+ * #endif if "#else" is passed.
+ */
+skiptill(s)
+  char *s;
+{
+  do {
+    inline();
+    if (qmatch("#ifdef")) {
+      ++condlvl;
+      skiptill("#endif");
+    } else
+      if (qmatch("#ifndef")) {
+        ++condlvl;
+        skiptill("#endif");
+      }
+    if (qmatch("#endif")) {
+      --condlvl;
+      break;
+    }
+  } while ((!eof) & (!qmatch(s)));
+}
+
+
+/*
+ * This function preprocesses strings.  Escape characters
+ * are passed through, they are dealt with by the parser.
+ */
+prepstr() {
+  char lc;
+
+  lc = 0;
+  while (ch()) {
+    keepch(ch());
+    if ((ch() == DQUOTE) && (lc != escchar)) {
+      instring = 0;
+      adv1();
+      return;
+    }
+    lc = gch();
+  } 
+  if (lc != escchar) { /* Catch unescaped EOL in a string. */
+    scerror("Missing quote inserted at end of line");
+    keepch(DQUOTE);
+    instring = 0;
+  }
+}
+
+
+/* Put a given character into the macro table */
+putmac(c)
+  char c;
+{
+  if (macptr <= MACMAX)
+    macq[macptr++] = c;
+  return c;
+}
+
+
+/* Add a macro definition to the macro table */
+addmac() {
+  char sname[NAMESIZE];
+  int  k;
+
+  if (!symname(sname)) { /* Get the symbol */
+    illname();
+    kill();
+    return;
+  }
+  if (findmac(sname)) {  /* See if it is already defined */
+    multidef(sname);     /* Set up 'prpafter' and 'macleft' */
+    kill();
+    return;
+  }
+  macqn[macnum] = macq + macptr;
+  k = 0;
+  while (putmac(sname[k++])); /* add NAME to macro table */
+  skipwhitespace();
+  macqt[macnum] = macq + macptr;
+  while (putmac(gch()));      /* copy in text values */
+  if ((macptr >= MACMAX) || (macnum >= MAXMAC)) {
+    scerror("#define (macro) pool overflow");
+    *(macqn[macnum])=0;  /*cause the name to cease to exist */
+    return;
+  }
+  macql[macnum] =
+  macqr[macnum] = -1; /* Set links to left and right subtrees */
+  if (prpafter != -1) /* Link this symbol into the tree */
+    if (macleft)
+      macql[prpafter] = macnum;
+    else
+      macqr[prpafter] = macnum;
+  ++macnum;
+}
+
+
+/* Skip over any white space in the input file */
+blanks() {
+  for (;;) {
+    while(!ch()) {
+      inline();
+      preprocess();
+      if (eof)
+        break;
+    }
+    if (scisspace())
+      adv1();
+    else
+      return;
+  }
+}
+
+
+/* Find a macro definition in the macro table */
+findmac(sname)
+  char *sname;
+{
+  if (!macptr) {     /* Fail if the tree is empty */
+    prpafter = -1;
+    return 0;
+  }
+  glbsname = sname;  /* Set the symbol to be matched */
+  return macsrch(0); /* Find index into text array 'macq'. */
+}
+
+
+/* Recursively search for a #define (macro) */
+macsrch(index)
+  int  index;
+{
+  int  val;
+
+  if (index == -1)  /* Fail if we fell out of the tree */
+    return 0;
+  val = xcmpstr(glbsname, macqn[index]);  /* Compare symbols */
+  if (!val)                               /* Exact match? */
+    return macqt[index] - macq;
+  prpafter = index;                /* Set last node searched */
+  return macsrch((macleft = (val < 0)) ?
+                 macql[index] : macqr[index]);
+}
+
+
+/* Swallow up the rest of this token and all following blanks */
+junk()
+{
+  if (isalnum(inbyte()))
+    while (isalnum(ch()))
+      adv1();
+  else
+    while (!isalnum(ch())) {
+      if (!ch())
+        break;
+      adv1();
+    }
+  blanks();
+}
+
+
+/* Keep this character when preprocessing */
+keepch(c)
+  char c;
+{
+  mline[mptr] = c;
+  if (mptr < MPMAX)
+    mptr++;
+  return c;
+}

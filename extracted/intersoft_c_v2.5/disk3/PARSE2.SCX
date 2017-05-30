@@ -1,0 +1,774 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+
+#include "consts/scx"
+#include "vars/scx"
+
+
+/* This module contains the expression analyser.
+ */
+
+
+/*
+ * Format of the "int lval[3]" structure used in these routines:
+ *
+ * lval[0] - Symbol table address or 0 for constant.
+ * lval[1] - Type of object to fetch indirectly or 0 for a
+ *           static object, or CCONST if lval[2] contains const value
+ *           for folding.
+ * lval[2] - Type of pointer or array or 0.
+ *           Value of constant if lval[1] == CCONST.
+ */
+
+/* Declare an array for use by binops(). Storage is not reserved, since
+ * this module is compiled with the -g option. The array itself is
+ * initialized in assembler in file tables/scx .
+ */
+
+int opers[14];
+
+
+/* Parse an expression */
+expression()
+{
+  int lval[3];
+
+  constflag = 0;
+  if (heir1(lval))
+    rvalue(lval);
+  force1(lval); 
+}
+
+/*
+ * Enter here to parse and evaluate a constant expression, where such
+ * is required.
+ */
+constexpr()
+{
+  int lval[3];
+
+  constflag = 1;
+  if (heir1(lval) || lval[1] != CCONST)
+  {
+    scerror("constant expression required");
+    return 0;
+  }
+  return lval[2];
+}
+
+/* Parse the comma operator */
+heir1(lval)
+  int *lval;
+{
+  int rval;
+
+  rval = heir2(lval);
+  while (comma) {            /* Is comma allowed? */
+    if (match(",")) {        /* If so parse all expressions */
+      if (rval)
+        rvalue(lval);        /* Deal with last expression. */
+      rval = heir2(lval);
+      force1(lval);
+    } else
+      break;
+  }
+  return rval;         /* Returned value is last expression. */
+}
+
+
+/* Parse assignment statements */
+heir2(lval)
+  int  *lval;
+{
+  int  i,j,k,lval2[3];
+  char tchar;
+
+  k = heir3(lval);
+  tchar = ch();    /* Save the current character for asgnops */
+  if (opmatch("=")) {
+    force1(lval);
+    if (!k)
+      needlval();
+    if (lval[1])
+      fpush();
+    if (heir2(lval2))
+      rvalue(lval2);
+    force1(lval2);
+    store(lval);
+    return 0;
+  } else                     /* Not a simple assignment: */
+    if (j = (match("+=")     /* Match one (or more!) asgnops, */
+       + match("-=")         /* catch multiple ones later. */
+       + match("*=")
+       + match("/=")
+       + match("%=")
+       + match("|=")
+       + match("&=")
+       + match("^=")
+       + match(">>=")
+       + match("<<="))) { 
+      if ((j > 1) || !k)   /* Guard against multiple asgnops */
+        needlval();
+      force1(lval);
+      if (lval[1])
+        fpush();
+      i = lval[1];
+      crvalue(lval);        /* Get the old value of the lval. */
+      if (!(*lval) || lval[1])
+        bpush();             /* Save it until we calculate the */
+                           /* right side. */
+      if (heir2(lval2)) /* Get the right side. */
+        rvalue(lval2);
+
+      /* Generate code for the particular operation */
+      switch(tchar) {
+        case '+' : padd(lval, lval2);
+                   break;
+        case '-' : psub(lval, lval2);
+                   break;
+        case '*' : mult(lval, lval2);
+                   break;
+        case '/' : div(lval,lval2);
+                   break;
+        case '%' : modop(lval,lval2);
+                   break;
+        case '|' : orop(lval, lval2);
+                   break;
+        case '&' : andop(lval, lval2);
+                   break;
+        case '^' : xorop(lval, lval2);
+                   break;
+        case '<' : asl(lval, lval2);
+                   break;
+        case '>' : asr(lval, lval2);
+                   break;
+      }  
+      lval[1] = i;
+      store(lval);
+      lval[1]=CINT;
+      return 0;
+  } 
+  return k;
+}
+
+
+/* Parse conditional assignment "a?b:c" */
+heir3(lval)
+  int  *lval;
+{
+  int label1, label2, lval1[3], lval2[3], k;
+
+  k = heir4(lval);
+  blanks();
+  if (!match("?"))
+    return k;
+  /* This operator behaves differently if it appears in a constant
+   * expression, because it doesn't do any jumps.
+   */
+  if (constflag)
+  {
+    concheck(lval);
+    heir3(lval1);
+    concheck(lval1);
+    ncol();
+    heir3(lval2);
+    concheck(lval2);
+    if (lval[2])
+      lval[2] = lval1[2];
+    else
+      lval[2] = lval2[2];
+    return 0;
+  }
+
+  if (k)
+    rvalue(lval);
+  force1(lval);
+  label1 = getlabel();
+  label2 = getlabel();
+  testjump(label1);
+  if (heir3(lval1))
+    rvalue(lval1);
+  force1(lval1);
+  jump(label2);
+  ncol();
+  printlabel(label1);
+  col();
+  if (heir3(lval2))
+    rvalue(lval2);
+  force1(lval2);
+  printlabel(label2);
+  col();
+  return 0;
+}
+
+
+/* Parse relational or "||" */
+heir4(lval)
+  int  *lval;
+{
+  int  k, label1, lval2[3];
+
+  k = heir5(lval);
+  blanks();
+  if (!opeq("||"))
+    return k;
+  if (k)
+    rvalue(lval);
+  force1(lval);
+  label1 = getlabel();
+  for (;;)            /* Handle all adjacent occurences */
+    if (opmatch("||")) {
+      ntestjump(label1);
+      if (heir5(lval2))
+        rvalue(lval2);
+      force1(lval2);
+    } else {
+      printlabel(label1);
+      col();
+      return 0;
+    }
+}
+
+
+/* Parse relational and "&&" */
+heir5(lval)
+  int  *lval;
+{
+  int  k, label1, lval2[3];
+
+  k = binops(6, lval);
+  blanks();
+  if (!opeq("&&"))
+    return k;
+  if (k)
+    rvalue(lval);
+  force1(lval);
+  label1 = getlabel();
+  for (;;)          /* Handle all adjacent occurances */
+    if (opmatch("&&")) {
+      testjump(label1);
+      if (binops(6, lval2))
+        rvalue(lval2);
+      force1(lval2);
+    } else {
+      printlabel(label1);
+      col();
+      return 0;
+    }
+}
+
+/*
+ * Table lookup routine to parse, in priority order, the following
+ * operators:
+ *   <,>,>=,<=,<<,>>,==,!=,+,-,*,/,%,&,|,^
+ */
+binops(level, lval)
+ int level, lval[];
+{
+  int k,*j,lval2[3];
+
+/* Fall out of the routine here for higher precedence operators. */
+  if (level == 14)
+    return heir14(lval);
+
+  k=binops(level+1, lval);  /*Parse the left operand */
+  j = opers[level]; /*Table entry for this heirarchical level */
+  while (*j)  /* try all operators on this level */
+  { 
+    if (opmatch(*j))       /* Try match with the current operator */
+    {
+      if (k)
+        crvalue(lval);    /* fetch the value only if it is neither */
+                          /* constant nor simple variable.         */
+      if ( lval[1] && lval[1] != CCONST)
+        bpush();         /* Push only if not a constant */
+      if (binops(level+1, lval2))
+         crvalue(lval2);
+      docode(j, lval, lval2);  /* Call routine to generate code */
+      j = opers[level];        /* point back to first op at this level */
+      k=0;                     /* set return indicator to 'not lvalue' */
+    } 
+    else
+      j += 3;                  /* next operator at this precedence */
+  }
+  return k;
+}
+
+
+
+
+/*
+ * Parse the unary operators "++", "--", "-", "!", "~", "*"
+ * and "&"
+ */
+heir14(lval)
+  int  *lval;
+{
+  int  k;
+  char *ptr;
+
+
+  if (opmatch("++")) {
+    if (!(k = heir14(lval)))
+      needlval();
+    if (lval[1])
+      fpush();
+    fvalue(lval);
+    inc();
+    if (isintptr(lval))
+      inc();
+    store(lval);
+    lval[1] = CINT;
+    return 0;
+  } else
+    if (opmatch("--")) {
+      if (!(k = heir14(lval)))
+        needlval();
+      if (lval[1])
+        fpush();
+      fvalue(lval);
+      dec();
+      if (isintptr(lval))
+        dec();
+      store(lval);
+      lval[1] = CINT;
+      return 0;
+    } else
+      if (opmatch("-")) {
+        k = heir14(lval);
+        if (k)
+          rvalue(lval);
+        if (lval[1] == CCONST)
+          lval[2] = -lval[2];
+        else
+          neg();
+        return 0;
+      } else
+        if (opmatch("!")) {
+          k = heir14(lval);
+          if (k)
+            rvalue (lval);
+          if (lval[1] == CCONST)
+            lval[2] = !lval[2];
+          else
+            notop();
+          return 0;
+        } else
+          if (opmatch("~")) {
+            k = heir14(lval);
+            if (k)
+              rvalue(lval);
+            if (lval[1] == CCONST)
+              lval[2] = ~lval[2];
+            else
+              com();
+            return 0;
+          } else
+            if (opmatch("*")) {
+              k = heir14(lval);
+              if (k)
+                rvalue(lval);
+              force1(lval);
+              if (ptr = *lval)
+                lval[1] = ptr[TYPE];
+              else
+                lval[1] = CINT;
+              lval[2] = 0;
+              return 1;
+            } else
+              if (opmatch("&")) {
+                k = heir14(lval);
+                if (!k) {
+                  scerror("Illegal address with unary &");
+                  return 0;
+                }
+                ptr = *lval;
+                lval[2] = ptr[TYPE];
+                if (lval[1])
+                  return 0;
+                if (ptr[STORAGE] == STATIK){
+                  immed();
+                  outsym(ptr);
+                  nl();
+                }
+                else
+                  getloc(ptr);
+                lval[1] = ptr[TYPE];
+                return 0;
+              } else {
+                k = heir15(lval);
+                if (opmatch("++")) {
+                  if (!k)
+                    needlval();
+                  if (lval[1])
+                    fpush();
+                  fvalue(lval);
+                  inc();
+                  if (isintptr(lval))
+                    inc();
+                  store(lval);
+                  dec();
+                  if (isintptr(lval))
+                    dec();
+                  lval[1] = CINT;
+                  return 0;
+                } else
+                  if (opmatch("--")) {
+                    if (!k)
+                      needlval();
+                    if (lval[1])
+                      fpush();
+                    fvalue(lval);
+                    dec();
+                    if (isintptr(lval))
+                      dec();
+                    store(lval);
+                    inc();
+                    if (isintptr(lval))
+                      inc();
+                    lval[1] = CINT;
+                    return 0;
+                  } else
+                    return k;
+              }
+}
+
+
+/* Parse function calls and array subscripting */
+heir15(lval)
+  int  *lval;
+{
+  int lval2[3];
+  int  k;
+  char *ptr;
+
+  k = primary(lval);
+  ptr = *lval;
+  blanks();
+  if ((ch() == '[') || (ch() == '('))
+  {
+    for (;;) {     /* Handle all adjacent occurences */
+      ptr = *lval;
+      if (match("[")) {
+        if (!ptr) {
+          scerror("Can't subscript");
+          junk();
+          needbrack("]");
+          return 0;
+        } else
+          if (ptr[IDENT] == POINTER)
+            crvalue(lval);
+          else
+            if (ptr[IDENT] != ARRAY) {
+              scerror("Can't subscript");
+              k = 0;
+            }
+        if( ptr && ptr[IDENT] != ARRAY && lval[1])
+          /* Array address to be got soon*/
+          bpush();
+        if (heir1(lval2))
+          rvalue(lval2);
+        needbrack("]");
+        if (ptr[TYPE] == CINT)
+          doublereg(lval2);
+        arrad2(lval,lval2);
+        *lval = lval[2] = 0;
+        lval[1] = ptr[TYPE];
+        k = 1;
+      } else
+        if (match("(")) {
+          arrad1(lval);      /* if array, get address. */
+          if (!ptr)
+          {
+             if(k)
+               rvalue(lval);
+             callfunction(0);
+          }
+          else
+            if (ptr[IDENT] != FUNCTION) {
+              rvalue(lval);
+              callfunction(0);
+            } else
+              callfunction(ptr);
+          k = *lval = 0;
+          lval[1] = CINT;
+        } else
+          return k;
+    }
+  }
+  else
+    arrad1(lval);  /*Output array start address if it is an array with */
+                   /* no subscript */
+  if (!ptr)
+    return k;
+  if (ptr[IDENT] == FUNCTION) {
+    immed();
+    outsym(ptr);
+    nl();
+    lval[1] = CINT;
+    return 0;
+  }
+  return k;
+}
+
+
+/*
+ * Returns non-zero if "lval" is an integer pointer, otherwise
+ * returns 0.
+ */
+isintptr(lval)
+  int *lval;
+{
+  return (lval[2] == CINT && lval[1] != CCONST);
+}
+
+
+/*
+ * Returns non-zero if "lval1" -> int pointer or int array and
+ * "lval2" isn't a pointer or array, otherwise returns 0.
+ */
+dbltest(lval1, lval2)
+  int *lval1, *lval2;
+{
+  if (isintptr(lval1) && !isptr(lval2))
+    return 1;
+  return 0;
+}
+
+isptr(lval)
+  int lval[];
+{
+  return ( lval[1] != CCONST && lval[2] );
+}
+
+
+
+/*
+ * Determines the type of the result of a binary operation.
+ */
+result(lval, lval2)
+  int *lval, *lval2;
+{
+  if (isptr(lval) && isptr(lval2))
+    lval[2] = 0;  /* Difference of two pointers is integer */
+  else
+    if (isptr(lval2)) {
+      *lval = *lval2; /* Automatic type conversion to pointer */
+      lval[1] = lval2[1];
+      lval[2] = lval2[2];
+    }
+}
+
+/*
+ *  Perform scaling for additive operations 
+ */
+padd(lval, lval2)
+int *lval, *lval2;
+{
+  if(dbltest(lval,lval2))
+    doublereg(lval2);
+  if(dbltest(lval2, lval))
+    dbstadd(lval, lval2);  /* dbl top of stack and add to prim, implicit pop */
+  else
+    fadd(lval,lval2);           /*no scaling, add from stk with implicit pop */
+}
+
+/*
+ * Perform scaling and subtraction.
+ */
+psub(lval, lval2)
+  int *lval, *lval2;
+{
+  if(dbltest(lval, lval2))
+    doublereg(lval2);
+  if(dbltest(lval2, lval))
+    dbstsub(lval,lval2);   /* dbl top of stack and subtract prim from it,*/
+                           /* result in prim, implicit pop               */
+  else
+    fsub(lval,lval2);            /* no scaling, implicit pop */
+
+  /*
+   * If both were integer pointers then divide by two to yield
+   * the number of objects intervening.
+   */
+  if (isintptr(lval) && isintptr(lval2))
+    halfreg();
+}
+
+/*
+ *     Perform a FUNCTION call
+ *
+ * Called from heir15, this routine will either call the NAMEd
+ * FUNCTION, or if the supplied POINTER is zero, will call the
+ * contents of the primary register.
+ */
+callfunction(ptr)
+  char *ptr;      /* symbol table entry (or 0 ) */
+{  
+  int nargbytes, oldcomma;
+
+  nargbytes = 0;
+  blanks();        /* already saw open paren */
+  if (!ptr)
+    fpush();       /* Calling contents of primary register */
+  oldcomma = comma;
+  comma = 0;       /* Disable the comma operator */
+  while (!srceq(")")) {
+    if (endst())
+      break;
+    expression();  /* get an argument */
+    if (!ptr)
+      swapstk();   /* don't push address */
+    fpush();       /* push argument */
+    nargbytes += 2; /* increment byte count by 2 */
+    if (!match(","))
+      break;
+  }
+  needbrack(")");
+  /* Tell the function the number of arguments */
+  passnargs(nargbytes >> 1);
+  comma = oldcomma;         /* Enable the comma operator. */
+  if (ptr)
+    fcall(ptr);
+  else
+    callstk();
+  stkptr = modstk(stkptr + nargbytes); /* Clean up arguments */
+}
+
+/*
+ * If lval indicates a constant, load it into the primary register,
+ * and return 1. Else, return 0.
+ */
+force1(lval)
+  int *lval;
+{
+  if (lval[1] == CCONST)
+  { 
+    immed();
+    outhex(lval[2]);
+    nl();
+    *lval = lval[2] = 0;
+    lval[1] = CINT;
+    return 1;
+  }
+  return 0;
+}
+
+
+/*
+ * If lval indicates a constant, load it into the secondary register,
+ * and return 1. Else, return 0.
+ */
+force2(lval)
+  int *lval;
+{
+  if (lval[1] == CCONST)
+  { 
+    immedsec();
+    outhex(lval[2]);
+    nl();
+    *lval = lval[2] = 0;
+    lval[1] = CINT;
+    return 1;
+  }
+  return 0;
+}
+
+
+
+/*
+ * Fold constants, or generate code for the current operator.
+ */
+docode(table, lval, lval2)
+  int *table, *lval, *lval2;
+{
+  /* if both operands are consants then just fold them. */
+  if (lval[1] == CCONST && lval2[1] == CCONST)
+  {
+    lval[2] = (table[2])(lval[2], lval2[2]);
+    return;
+  }
+
+  /* At least one argument is not a constant, so generate code. */
+  (table[1])(lval, lval2);
+}
+
+/*
+ * If the item given is an array, then fetch its address
+ * into the primary register.
+ */
+arrad1(lval)
+  int *lval;
+{
+  char *ptr;
+ if (!lval[1] && (ptr = *lval))    /* It is a variable */
+    if (ptr[IDENT] == ARRAY)
+    { 
+      if (ptr[STORAGE] == STKLOC)
+      {
+        getloc(ptr);
+      }
+      else
+      {
+        immed();
+        outsym(ptr);
+        nl();
+      }
+      lval[1] = lval[2] = ptr[TYPE];
+    }
+}
+
+/*
+ * The first object describes an array, and the second its subscript.
+ * Generate the address of the indicated item in the primary register.
+ */
+ 
+arrad2(lval, lval2)
+  int *lval, *lval2;
+{
+  char *ptr;
+  
+  if( (ptr = *lval) && ptr[IDENT] == ARRAY)
+  {
+    if (ptr[STORAGE] == STATIK)
+    {
+      if (lval2[1] != CCONST)
+      {
+        immedsec();
+        outsym(ptr);
+        nl();
+        addcode();
+      }
+      else
+      {
+        immed();
+        outsym(ptr);
+        outbyte('+');
+        outhex(lval2[2]);
+        nl();
+      }
+    }
+    else
+    { 
+      /* The item is on the stack. */
+      if( lval2[1] != CCONST )
+      {
+        swap();
+        getloc(ptr);
+        addcode();
+      }
+      else
+      {
+        getlc2(ptr, lval2[2]);   /*constant subscript. */
+      }
+    }
+  }
+  else /* We pushed the value on the stack. */
+  {
+    fadd(lval, lval2);
+  }
+}
+ 

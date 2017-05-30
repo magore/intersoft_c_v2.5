@@ -1,0 +1,63 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+#include "consts/scx"
+#include "vars/scx"
+
+
+/*
+ * This module contains the entry point to the compiler.
+ * Compiler begins executon here.
+ */
+main(argc, argv)
+  int argc, argv;
+{
+  int  *ptr;
+
+  /* Data initialization */
+  for (ptr = &litptr; ptr <= &lastst; *ptr++ = 0);
+
+  *quote = DQUOTE; /* fake a quote literal */
+  quote[1] = 0;    /* End of string */
+
+  comma = trflag = 1;
+  initchar();                /* Initialize character vector */
+  if (!options(argc, argv))  /* Get command line options */
+    exit(errcnt);            /* STOP IF OPTIONS WERE BAD */
+
+  pl(COPYRIGHT);             /* Brag about it to the world */
+
+  symtab  = malloc(SYMTBSZ); /* Allocate the symbol table */    
+  wq      = malloc(WQTABSZ); /* Allocate the "while" queue */
+  litq    = malloc(LITABSZ); /* Allocate the literal pool */
+  macq    = malloc(MACQSIZE); /* Allocate the (macro) pool */
+  macqn   = malloc((MAXMAC) * 2); /* Allocate macro pointers */
+  macqt   = malloc((MAXMAC) * 2);
+  macqr   = malloc((MAXMAC) * 2);
+  macql   = malloc((MAXMAC) * 2);
+  line    = malloc(LINESIZE); /* Allocate source line buffer */
+  mline   = malloc(LINESIZE); /* Allocate preprocess buffer */
+
+  /* Make sure we allocated all the preceeding vectors. */
+  if (!mline || !line || !macql || !macqr || !macqt ||
+      !macqn || !macq || !litq || !wq || !symtab) {
+    output = 0;
+    ++errcnt;
+    pl("Insufficient memory!");
+    exit(errcnt);
+  }
+  glbptr  = STARTGLB;            /* Clear global symbols */
+  locptr  = STARTLOC;            /* Clear local symbols */
+  wqptr   = wq;                  /* Clear the "while" queue */
+
+  kill();         /* Erase the input line */
+  header();       /* intro code */
+  parse();        /* process ALL input */
+  dumpglbs();     /* and all static memory */
+  errorsummary(); /* summarize errors */
+  trailer();      /* followup code */
+  closeout();     /* close the output (if any) */
+  exit(errcnt);   /* then exit to system */
+}

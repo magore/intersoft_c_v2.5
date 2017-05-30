@@ -1,0 +1,61 @@
+;
+; Assembler prologue for the
+; Intersoft C Compiler Version 2.5
+; TRS-80 Model 1 MACRO-80 VERSION
+;
+; Copyright (C) 1982 by Intersoft Unlimited
+;
+; by: Mike Gore, Richard B. McMurray
+;
+.Z80
+ EXT CCSETUP ; The routine to set up the environment
+             ; of a C program (and to execute the
+             ; program).
+ EXT CCGIR   ; Address of the run-time routine to fetch
+             ; an integer when the "f=1" option is used
+             ; (ie. use RST 4).
+ EXT CCPIR   ; Same as CCGIR but writes an integer and
+             ; uses RST 3.
+ EXT CCSTAC  ; Save area for the initial stack pointer.
+ EXT CCRSV   ; Save area for the restart vectors 3 and 4.
+ EXT CCMEM   ; Address of bottom of free memory.
+;
+MEMEND EQU 4049H  ; Address of the word containing the address
+                  ; of the end of memory.
+RST3A  EQU 4006H  ; Address to patch the RST 3.
+;
+; The entry point to all Intersoft C programs.
+;
+ CSEG
+CCMAIN::
+ LD (CCSTAC),SP   ; Save the stack pointer.
+ LD HL,(MEMEND)   ; Get the address of the end of
+                  ; memory.
+ LD  DE,-100      ; Back up 100 bytes for safety.
+ ADD HL,DE        ; Some versions of TRSDOS do not
+                  ; obey the end of memory convention
+                  ; to the letter.
+ LD  SP,HL        ; Set the stack pointer.
+ LD  HL,($MEMRY)  ; Set up the end of memory pointer.
+ LD  (CCMEM),HL
+ LD  HL,RST3A     ; Save the restart vectors 3 and 4.
+ LD  DE,CCRSV
+ LD  BC,6
+ LDIR
+ LD  HL,RESTRT     ; Load the restart vectors 3 and 4.
+ LD  DE,RST3A
+ LD  BC,6
+ LDIR
+ JP  CCSETUP      ; Jump to the C routine that supervises
+                  ; the execution of C programs.
+;
+RESTRT:           ; Restart vector jumps to run-time
+ JP CCPIR         ; routines.  Copied into the restart
+ JP CCGIR         ; locations.
+;
+; Data
+;
+ DSEG
+$MEMRY::
+ DEFS 2  ; The free memory pointer set by L80.
+ END

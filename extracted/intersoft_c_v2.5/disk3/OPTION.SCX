@@ -1,0 +1,59 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+/*
+ * This module contains:
+ * Definitions (defaults) for command line arguments and file
+ * name Extensions.  It also contains the definition of the number
+ * of significant characters in global symbols.
+ *
+ * GSIG     -  The number of significant characters in global
+ *             symbols.
+ * PRTSTATS -  If non-zero prints compiler stats.  Includes
+ *             first & last label no.
+ * SOURCE   -  If non-zero then the source will be included
+ *             in the output as comments.
+ * GLOBALS  -  If non-zero then the globals will be defined,
+ *             otherwise they will be defined as external.
+ * ESCAPECH -  The escape character.
+ * SPECPREP -  Non-zero if escape sequences for special
+ *             characters are accepted.
+ * LABELNO  -  The first local label number.
+ * PASSNARG -  If non-zero then the number of arguments
+ *             passed to every function will be loaded
+ *             into a register before the function is
+ *             called.
+ * LITPOOL  -  The size of the literal pool in bytes.
+ * DEFPOOL  -  The size of the #define (macro) pool in bytes.
+ * NOGLBS   -  The maximum number of global symbols.
+ * NOLOCS   -  The maximum number of local symbols.
+ * NODEFS   -  The maximum number of #defines (macros).
+ * WQTAB    -  The size of the while queue table in bytes.
+ * LINESZ   -  The maximum length of a source line and the
+ *             preprocess buffer.
+ * INPUTEXT -  The default extension of the input file.
+ * OUTPUTEXT - The default extension of the output file.
+ * OPTIMPARM - The default value of the optimization parameter.
+ *               set by the f= option, f=1 implies maximum code
+ *               density, possibly at the expense of speed.
+ */
+#define GSIG      6
+#define PRTSTATS  0
+#define SOURCE    0
+#define GLOBALS   1
+#define ESCAPECH  BACKSLASH
+#define SPECPREP  1
+#define LABELNO   5000
+#define PASSNARG  1
+#define LITPOOL   256
+#define DEFPOOL   1200
+#define NOGLBS    150
+#define NOLOCS    30
+#define NODEFS    100
+#define WQTAB     175
+#define LINESZ    132
+#define INPUTEXT  "/C"
+#define OUTPUTEXT "/MAC"
+#define OPTIMPARM 2

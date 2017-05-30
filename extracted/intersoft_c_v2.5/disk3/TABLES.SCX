@@ -1,0 +1,138 @@
+/*
+ * Intersoft C Compiler Version 2.5
+ * Copyright (c) Intersoft Unlimited
+ */
+ 
+/* This file is a table coded in assembler,
+ * for use by routine binops in the expression
+ * analyzer. These tables are initialized to contain the operator
+ * strings and addresses necessary to do a very compact parse.
+ */
+#asm
+        ENTRY OPERS
+OPERS:  DEFW 0,0,0,0,0,0,LEV6,LEV7,LEV8,LEV9,LEV10,LEV11,LEV12
+        DEFW LEV13
+;
+        EXT  OROP        ;ADDRESS OF THE CODE GENERATING ROUTINE
+LEV6:   DEFW ORCHAR,OROP,COR,0
+        EXT  XOROP
+LEV7:   DEFW XRCHAR,XOROP,CXOR,0
+        EXT  ANDOP
+LEV8:   DEFW ANCHAR,ANDOP,CAND,0
+        EXT  EQOP
+        EXT  NEOP
+LEV9:   DEFW EQCHAR,EQOP,CEQ
+        DEFW NECHAR,NEOP,CNE,0
+        EXT  LEOP
+        EXT  GEOP
+        EXT  LTOP
+        EXT  GTOP
+LEV10:  DEFW LECHAR,LEOP,CLE
+        DEFW GECHAR,GEOP,CGE
+        DEFW LTCHAR,LTOP,CLT
+        DEFW GTCHAR,GTOP,CGT,0
+        EXT  ASR
+        EXT  ASL
+LEV11:  DEFW LSCHAR,ASL,CASL
+        DEFW RSCHAR,ASR,CASR,0
+        EXT  PADD
+        EXT  PSUB
+LEV12:  DEFW PLCHAR,PADD,CADD
+        DEFW SBCHAR,PSUB,CSUB,0
+        EXT  MULT
+        EXT  DIV
+        EXT  MODOP
+LEV13:  DEFW MUCHAR,MULT,CMULT
+        DEFW DVCHAR,DIV,CDIV
+        DEFW MDCHAR,MODOP,CMOD,0
+;
+; OPERATOR STRINGS.
+;
+ORCHAR: DEFB '|',0
+XRCHAR: DEFB '^',0
+ANCHAR: DEFB '&',0
+EQCHAR: DEFB '==',0
+NECHAR: DEFB '!=',0
+LECHAR: DEFB '<=',0
+LTCHAR: DEFB '<',0
+GECHAR: DEFB '>=',0
+GTCHAR: DEFB '>',0
+LSCHAR: DEFB '<<',0
+RSCHAR: DEFB '>>',0
+PLCHAR: DEFB '+',0
+SBCHAR: DEFB '-',0
+MUCHAR: DEFB '*',0
+DVCHAR: DEFB '/',0
+MDCHAR: DEFB '%',0
+;
+#endasm
+
+
+/* Constant folding routines just do the indicated operation
+ * directly on the two arguments and return the results.
+ */
+
+cor(a,b)
+ int a,b;
+{ return a | b;
+}
+cxor(a,b)
+  int a,b;
+{ return a ^ b;
+}
+cand(a,b)
+  int a,b;
+{ return a & b;
+}
+ceq(a,b)
+  int a,b;
+{ return a == b;
+}
+cne(a,b)
+  int a,b;
+{ return a != b;
+}
+clt(a,b)
+  int a,b;
+{ return a < b;
+}
+cle(a,b)
+  int a,b;
+{ return a <= b;
+}
+cgt(a,b)
+  int a,b;
+{ return a > b;
+}
+cge(a,b)
+  int a,b;
+{ return a >= b;
+}
+casr(a,b)
+  int a,b;
+{ return a >> b;
+}
+casl(a,b)
+  int a,b;
+{ return a << b;
+}
+cadd(a,b)
+  int a,b;
+{ return a + b;
+}
+csub(a,b)
+  int a,b;
+{ return a - b;
+}
+cmult(a,b)
+  int a,b;
+{ return a * b;
+}
+cdiv(a,b)
+  int a,b;
+{ return a / b;
+}
+cmod(a,b)
+  int a,b;
+{ return a % b;
+}

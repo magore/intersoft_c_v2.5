@@ -1,0 +1,557 @@
+/*
+ * Intersoft C compiler Version 2.5
+ * Copyright (c) 1982 by Intersoft
+ */
+
+#include "consts/scx"
+#include "vars/scx"
+
+
+/*
+ * This module contains utilities used by the compiler
+ */
+
+
+/*
+ * Initialize the 'charvec' vector.
+ * This vector is used to quickly define the "type"
+ * of any character (numeric, alphabetic, etc.)
+ */
+initchar() {
+  int  i;
+
+  for (i = 0; i < 128; ++i)
+    charvec[i] = inrange('a', 'z', i) ? CALPHAL :
+                 ((inrange('A', 'Z', i) || (i == '_')) ?
+                  CALPHA : (inrange('0', '9', i) ?
+                            CNUMERIC : 0));
+}
+
+
+/* Test an integer to see if it is within a given range */
+inrange(lower, upper, value)
+  int lower, upper, value;
+{
+  return ((value >= lower) && (value <= upper));
+}
+
+
+/* Test if a given character is alphanumeric */
+isalnum(c)
+  char c;
+{
+  return charvec[c] & CALPHNUM;
+}
+
+
+/* Test if given character is alpha */
+scisalpha(c)
+  char c;
+{
+  return charvec[c] & CALPHA;
+}
+
+
+/* Test if a given character is numeric */
+scisdigit(c)
+  char c;
+{
+  return charvec[c] & CNUMERIC;
+}
+
+
+/*
+ * Check to see if the current character in "line"
+ * is whitespace
+ */
+scisspace()
+  return (ch() == ' ' || ch() == TABCH);
+
+
+/* Skip whitespace characters within a line */
+skipwhitespace()
+  while (scisspace())
+    adv1();
+
+
+/* Return next available local label number */
+getlabel()
+  return nxtlab++;
+
+
+/* Strip the quotes or angle brackets from the argument */
+/* to a #include */
+stripquotes() {
+  skipwhitespace();
+  return strip('"', '"') || strip('<', '>');
+}
+
+
+/* Strip start and end characters from a string */
+/* Replaces the "end" character with a NULL */
+strip(s, e)
+  char s, e;
+{
+  char *ptr;
+
+  if (ch() == s) {
+    adv1();    /* Skip the start character */
+    for (ptr = chaddr(); *ptr; ++ptr)  /* Search for the end */
+      if (*ptr == e) {                 /* character */
+        *ptr = NULL;
+        return TRUE;
+      }
+  } 
+  return FALSE;    /* Start or end character not found */
+}
+
+
+
+/* Convert a character to uppercase */
+sctoupper(c)
+  char c;
+{
+  return c - (trflag && (charvec[c] & LOWERCASE) ? ' ' : 0);
+}
+
+
+/*
+ * Make a new filepointer on the top of the input file
+ * filepointer stack, the rest of the stack is pushed down.
+ */
+#define FPTOP FPMAX-1
+fppushed() {
+   if (fpstkptr < FPTOP) {
+     ++fpstkptr;
+     fpstack[fpstkptr] = input;
+     return TRUE;
+   } else
+     return FALSE;
+}
+
+
+/*
+ * Pop a filepointer from the input file filepointer stack.
+ * Returns previous filepointer or FALSE.
+ */
+fppopped() {
+   if (fpstkptr <= 0) {
+     fpstkptr = 0;
+     return FALSE;
+   } else
+     return fpstack[fpstkptr--];
+}
+
+
+/* Add an active loop to the loop control block list */
+addwhile(ptr)
+  int  *ptr;
+{
+  int k;
+
+  if (wqptr == WQMAX) {
+    scerror("Too many nested loops and switches");
+    return;
+  }
+
+  for (k = 0; k < WQSIZ; *wqptr++ = ptr[k++]);
+}
+
+
+
+/* Delete an active loop control block from the list */
+delwhile()
+  if (readwhile())
+    wqptr -= WQSIZ;
+
+
+/* Check to see if there are any active whiles on queue */
+readwhile() {
+  if (wqptr == wq) {
+    scerror("No loops or switches in effect");
+    return 0;
+  } else
+    return wqptr - WQSIZ;
+}
+
+
+/*
+ * Check to see if there are any looping whiles on the queue.
+ * Used in "continue" in the case of a "continue" issued
+ * within a "switch".
+ */
+readloop() {
+  int  *ptr;
+
+  for (ptr = wqptr - WQSIZ; ptr >= wq; ptr -= WQSIZ)
+    if (ptr[WQTYPE] != STSWITCH)
+      return ptr;
+  scerror("No loops in effect");
+  return 0;
+}
+
+
+/* Generate the opposite transfer to test */
+ntest(label)
+  int  label;
+{
+  needbrack("(");
+  expression();
+  needbrack(")");
+  ntestjump(label);
+}
+
+
+/* Rvalue is used to generate code to fetch an rvalue */
+rvalue(lval)
+  int  *lval;
+{
+  if (*lval && !lval[1])
+  {
+    getmem(*lval);
+    lval[1] = CINT;
+  }
+  else
+    indirect(lval[1]);
+}
+/* fvalue is used to generate code to fetch an rvalue */
+/* It does not modify lval. Used by increment and decrement operators */
+fvalue(lval)
+  int  *lval;
+{
+  if (*lval && !lval[1])
+    getmem(*lval);
+  else
+    indirect(lval[1]);
+}
+
+/* Crvalue does the same as Rvalue, except that it does not fetch values
+ * of simple variables, which will be fetched when they are needed.
+ */
+crvalue(lval)
+  int *lval;
+{
+  if (!(*lval) || lval[1])
+    indirect(lval[1]);
+}
+
+
+
+/* Store is used to generate code to store a value */
+store(lval)
+  int  *lval;
+{
+  if (!lval[1])
+    putmem(*lval);
+  else
+    putstk(lval[1]);
+}
+
+
+/* Test parses a logical expression used for true/false */
+test(label)
+  int  label;
+{
+  needbrack("(");
+  expression();
+  needbrack(")");
+  testjump(label);
+}
+
+
+/* Test if we are at the end of a statement */
+endst() {
+  blanks();
+  return (ch() == ';');
+}
+
+
+/* Colon enforcer */
+ncol()
+  if (!match(":"))
+    scerror("Missing colon");
+
+
+/* Called to scan a manditory bracket */
+needbrack(str)
+  char *str;
+{
+  if (!match(str)) {
+     scerror("Missing bracket");
+     comment();
+     outstr(str);
+     nl();
+  }
+}
+
+
+/* Semicolon enforcer */
+ns()
+  if (!match(";"))
+    scerror("Semicolon missing");
+
+
+/*
+ * Customized string comparison for symbol searches.
+ * Compares the given strings for up to NAMEMAX characters.
+ */
+xcmpstr(str1, str2)
+  char *str1, *str2;
+{
+  int  k;
+
+  for (k = NAMEMAX; k--;) {
+    if (*str1 != *str2)
+      break;
+    if (!*str1)
+      break;
+    ++str1;
+    ++str2;
+  }
+  return *str2 - *str1;
+}
+
+
+/*
+ * Match a string against the input line, advance if
+ * successful.  This routine skips whitespace before
+ * performing the comparison.  This routine performs only
+ * an anchored match of the input line with the given string
+ * for the length of the given string.
+ */
+match(lit)
+  char *lit;
+{
+  int  k;
+
+  blanks();
+  if (k = srceq(lit)) {
+    adv(k);
+    return 1;
+  }
+  return 0;
+}
+
+
+/*
+ * Match a string against the input line, advance if successful
+ * This routine is case insensitive however IT REQUIRES THAT THE
+ * STRING ARGUMENT BE IN LOWER CASE.
+ * This routine DOES NOT skip whitespace before performing the
+ * comparison.
+ * In addition to performing an anchored match of the given
+ * string with the input line this routine verifies that the
+ * next character of the input line isn't alphanumeric.
+ * This routine is used to match tokens from the source file.
+ */
+qmatch(lit)
+  char *lit;
+{
+  int  k;
+
+  if ((k = qsrceq(lit)) && !isalnum(line[lptr+k])) {
+    adv(k);
+    return 1;
+  }
+  return 0;
+}
+
+/*
+ * This routine performs an anchored match of the argument with
+ * the source file, and verifies that the next character in the input
+ * stream is neither the last character matched nor '='. This
+ * acts as a match operation for operator tokens in the expression
+ * analyzer.
+ */
+opmatch(lit)
+  char *lit;
+{
+  int k;
+
+  blanks();
+  if (
+        (k = srceq(lit)) &&
+        ((line[lptr+k] != line[lptr+k-1] && line[lptr+k] != '=' )
+        || srceq("++") || srceq("--") || srceq("**"))
+     )
+  { 
+    adv(k);
+    return 1;
+  }
+  return 0;
+}
+
+/* This routine does the same as opmatch, but doesn't swallow matched
+ * input.
+ */
+opeq(lit)
+  char *lit;
+{
+  int k;
+
+  return (
+          (k=srceq(lit)) &&
+          ((line[lptr+k] != line[lptr+k-1] && line[lptr+k] != '=' )
+          || srceq("++") || srceq("--") || srceq("**"))
+         );
+}
+
+/*
+ * Checks for an anchored string match of the argument string
+ * with the source line at the current position.
+ * NOTE: The order of arguments to "streq" is CRUCIAL!!!
+ *       The source line does not have zero terminated tokens.
+ *       See "streq".
+ */
+srceq(k)
+  char *k;
+{
+  return streq(chaddr(), k);
+}
+
+
+/* Same as srceq() but is case insensitive.  REQUIRES ITS
+ * ARGUMENT STRING TO BE IN LOWER CASE.
+ */
+qsrceq(k)
+  char *k;
+{
+  return qxstreq(chaddr(), k);
+}
+
+
+/*
+ * Perform an anchored string comparison of the whole of "str2"
+ * to "str1".
+ * NOTE: It is CRUCIAL that "while (*str2)" be used as the
+ *       termination condition.  Some routines (match, qmatch)
+ *       which use this one rely on the fact that the first
+ *       argument to this function need not be a zero
+ *       terminated string.
+ */
+streq(str1, str2)
+char *str1, *str2;
+{
+  int k;
+
+  for (k = 0; *str2; ++k)
+    if (*str1++ != *str2++)
+      return 0;
+  return k;
+}
+
+
+/* Same as streq() but is case insensitive.  REQUIRES THAT THE STRING
+ * "str2" BE IN LOWER CASE.
+ */
+qxstreq(str1, str2)
+char *str1, *str2;
+{
+  int k;
+
+  for (k = 0; *str2; ++k)
+    if (tolower(*str1++) != *str2++)
+      return 0;
+  return k;
+}
+
+
+/*
+ * This function returns true if the first string is a
+ * substring of the second string anchored at the beginning
+ * of the second string.
+ */
+qstreq(s1, s2)
+  char *s1, *s2;
+{
+  while (*s1 && (sctoupper(*s1) == sctoupper(*s2))) {
+    ++s1;
+    ++s2;
+  }
+  return !*s1;
+}
+
+
+
+/* Test if next input string is a legal symbol NAME */
+symname(sname)
+  char *sname;
+{
+  blanks();
+  if (!scisalpha(ch()))
+    return 0;
+
+  while (isalnum(ch()))
+    *sname++ = gch();
+
+  *sname = 0;
+  return 1;
+}
+
+
+/* This function turns a string into an integer */
+scatoi(str)
+  char *str;
+{
+  char *oldline;
+  int  oldlptr, val, result;
+
+  oldline = line;
+  oldlptr = lptr;
+  line = str;
+  lptr = 0;
+  result = number(&val);
+  line = oldline;
+  lptr = oldlptr;
+  if (result)
+    return val;
+  return 0;
+}
+
+
+/* Output a hex number */
+outhex(n)
+  int n;
+{
+  xhex(n, -1);
+  if ((n > 9) || (n < 0))
+    outbyte('H');
+}
+
+
+/* Print the hexidecimal portion of a label */
+outlab(n)
+  int n;
+{
+  xhex(n, 0);
+}
+
+
+/*
+ * Output the digits of a hex number
+ * Leading zeroes are usually suppressed
+ * A leading zero is inserted if the first digit is A..F
+ */
+xhex(n, leading)
+  int  n, leading;
+{
+  if (n & 0xFFF0) {    
+    leading = 0;
+    xhex(n >> 4, -1);
+  }
+  n &= 0xF;
+  if (n > 9) {
+    if (leading)
+      outbyte('0');
+    outbyte(n + 0x37);  /* A..F */
+  } else
+    outbyte(n + '0');   /* 0..9 */
+}
+
+
+/* Add a character to the literal pool */
+addlit(c)
+  char c;
+{
+  litq[litptr++] = c;
+}
