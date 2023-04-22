@@ -10,6 +10,15 @@ By Mike Gore, Richard B. McMurray, Bernie Roehl, Ashok Patel, Andrew Forber
   * Documents/Intersoft_C_Compiler_v2.5_1982_Intersoft_Unlimited.pdf
     * PDF of scanned Intersoft Manual
 
+  * First mention of Intersoft Unlimited and the compiler in print
+    * Dr. Dobb's Journal Number 51, July 1981 pg 4-7
+      * As an introduction to our company we wrote a 4 page bug report and fix for Ron Cain's Small-C.
+      * Intersoft had already created a much enhanced version of Small-C that worked on TRS-80, CPM and 6909 Flex systems. We offered it for sale in the Dr. Dobb's article so we got a bit of free advertising.
+      * Triva 
+        * I used my own home address in the article for Intersoft's address. We were all students at the University of Waterloo at the time and had yet to create a PO box for the company.
+        * We only ran Intersoft for a little over two years as work and life caught up with us all. 
+        * After closing Intersoft we released the source code and the manual to the public publishing on a mailing list in the pre-internet era..
+
   * References from 80 Microcomputing Magazine
     * Archive of 80 Microcomputing
       * https://archive.org/details/80-microcomputing-magazine?query=intersoft&sin=TXT
