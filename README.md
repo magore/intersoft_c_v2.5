@@ -23,6 +23,13 @@ By Mike Gore, Richard B. McMurray, Bernie Roehl, Ashok Patel, Andrew Forber
     * Notice of Company closing
       * July 1983 pg 14
 
+  * References from 68 Micro Journal
+    * Article
+      * Jan 1982 pg 17
+    * Ads
+      * Feb 1982 pg 42
+      * May 1982 pg 52
+
   * Mike_Gore_Intersoft.png
 	* My Intersoft Business Card from 1982
 
